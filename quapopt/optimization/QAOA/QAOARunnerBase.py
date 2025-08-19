@@ -246,7 +246,7 @@ class QAOARunnerBase(HamiltonianOptimizer):
         #self._log_results(qaoa_result=qaoa_result)
 
     def initialize_backend_qokit(self,
-                                 qokit_backend: str = 'gpu',
+                                 qokit_backend: str = 'auto',
                                  # reverse_indices=False
                                  ):
 
@@ -256,9 +256,13 @@ class QAOARunnerBase(HamiltonianOptimizer):
         # TODO FBM: figure out how to handle reversing indices for qokit
         # TODO(FBM): I think this is already handled; I modified the qokit's source code to handle this
         # cuda.synchronize()
+        import quapopt.additional_packages.qokit.fur as qk_fur
         if qokit_backend.lower() in ['gpu']:
-            import quapopt.additional_packages.qokit.fur as qk_fur
             simclass = qk_fur.choose_simulator(name=qokit_backend)
+        elif qokit_backend.lower() in ['cpu']:
+            simclass = qk_fur.choose_simulator(name="python")
+        elif qokit_backend.lower() in ['auto']:
+            simclass = qk_fur.choose_simulator(name="auto")
         else:
             raise ValueError('Only gpu backend_computation is supported as of now for qokit.')
 

@@ -77,7 +77,7 @@ pixi run check_cuda
 NOTE: currently, as far as I know, qiskit-aer-gpu does not properly install with pip. 
 To use it, a brave user is advised to build the repository locally and add separate environment and feature in pixi.toml file.
 
-#### Build cpp parts of the project
+#### [Required] Build cpp parts of the project
 After setting up the environment, run the following command in the root of the repository
 
 ```

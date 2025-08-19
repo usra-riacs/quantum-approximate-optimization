@@ -85,6 +85,7 @@ qiskit-ibm-runtime = ">=0.40.1,<0.41"
 #This is needed for Jetbrains IDE support
 pixi-pycharm = ">=0.0.8,<0.0.9"
 pytest = ">=8.4.1,<9"
+numba = ">=0.61.2,<0.62"
 
 
 

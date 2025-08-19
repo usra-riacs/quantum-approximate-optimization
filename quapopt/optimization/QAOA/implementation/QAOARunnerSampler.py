@@ -153,10 +153,8 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
             if backend_name is None:
                 backend_name = _initialize_backend_kwargs.get('backend_name', None)
                 if backend_name is None:
-                    if 'cuda' in AVAILABLE_SIMULATORS:
-                        backend_name = 'qokit'
-                    else:
-                        backend_name = 'qiskit'
+                    backend_name = 'qokit'
+                    _initialize_backend_kwargs['qokit_backend'] = 'auto'
 
             if 'backend_name' in _initialize_backend_kwargs:
                 del _initialize_backend_kwargs['backend_name']

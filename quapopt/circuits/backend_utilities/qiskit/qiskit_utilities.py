@@ -39,7 +39,7 @@ from quapopt.data_analysis.data_handling import (STANDARD_NAMES_VARIABLES as SNV
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import ResultsLogger
 from quapopt.circuits.backend_utilities.qiskit.qiskit_config import *
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-
+import os
 
 
 # TODO(FBM): organize those functions some more!
@@ -640,8 +640,11 @@ def get_qiskit_provider(account_name: Optional[str] = None,
         # Filepath
         credentials_path = f'/home/{_local_username}/.ibm_quantum/qiskit_ibm_runtime_credentials.json'
     if account_name is None:
-        # CHANGE TO YOUR ACCOUNT NAME
-        account_name = f'{_local_username}-NDAR-HNCDI'
+        # CHANGE TO YOUR ACCOUNT NAME and INSTANCE NAME
+        from dotenv import load_dotenv
+        load_dotenv()
+        account_name = os.getenv('IBM_INSTANCE_NAME')
+        instance_ibm = os.getenv('IBM_ACCOUNT_NAME')
 
     return QiskitRuntimeService(name=account_name,
                                 filename=credentials_path,
