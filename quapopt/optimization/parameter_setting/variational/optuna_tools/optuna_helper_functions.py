@@ -1,7 +1,7 @@
 #def get_wrapped_run_function_optuna(hamiltonian_representations:List[Union[CLH,CQH]]):
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ 
  
 from typing import Union, List, Tuple, Any
 import numpy as np

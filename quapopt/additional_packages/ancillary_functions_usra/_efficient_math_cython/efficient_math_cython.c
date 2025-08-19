@@ -31197,7 +31197,7 @@ __Pyx_RefNannySetupContext("PyInit_efficient_math_cython", 0);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
 
   /* "quapopt/additional_packages/ancillary_functions_usra/_efficient_math_cython/efficient_math_cython.pyx":5
- * # Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ *
  * 
  * import numpy as np             # <<<<<<<<<<<<<<
  * cimport numpy as np
@@ -31463,7 +31463,7 @@ __Pyx_RefNannySetupContext("PyInit_efficient_math_cython", 0);
   /* "quapopt/additional_packages/ancillary_functions_usra/_efficient_math_cython/efficient_math_cython.pyx":1
  * # Copyright 2025 USRA             # <<<<<<<<<<<<<<
  * # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- * # Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ *
 */
   __pyx_t_6 = __Pyx_PyDict_NewPresized(0); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 1, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);

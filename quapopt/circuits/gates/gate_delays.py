@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ 
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from typing import List, Optional, Dict
 from enum import Enum

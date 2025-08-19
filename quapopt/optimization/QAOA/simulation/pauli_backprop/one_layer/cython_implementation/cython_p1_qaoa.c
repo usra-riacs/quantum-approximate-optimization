@@ -47690,7 +47690,7 @@ __Pyx_RefNannySetupContext("PyInit_cython_p1_qaoa", 0);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
 
   /* "quapopt/optimization/QAOA/simulation/pauli_backprop/one_layer/cython_implementation/cython_p1_qaoa.pyx":5
- * # Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ *
  * 
  * import numpy as np             # <<<<<<<<<<<<<<
  * cimport numpy as np
@@ -48044,7 +48044,7 @@ __Pyx_RefNannySetupContext("PyInit_cython_p1_qaoa", 0);
   /* "quapopt/optimization/QAOA/simulation/pauli_backprop/one_layer/cython_implementation/cython_p1_qaoa.pyx":1
  * # Copyright 2025 USRA             # <<<<<<<<<<<<<<
  * # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- * # Use, duplication, or disclosure without authors' permission is strictly prohibited.
+ *
 */
   __pyx_t_5 = __Pyx_PyDict_NewPresized(0); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 1, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
