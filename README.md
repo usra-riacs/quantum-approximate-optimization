@@ -40,6 +40,7 @@ The above installs all the basic packages required to run the project.
 
 See below for additional packages that can be installed to extend the functionality of the repository.
 
+Note: if you run into problems with dependecies, try removing pixi.lock file and running "install" command again.
 
 #### [Recommended] Additional packages 
 
