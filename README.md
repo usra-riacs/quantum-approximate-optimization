@@ -141,6 +141,14 @@ year={2025}, }
 ## Funding 
 Development of significant parts of the repository was supported under the NSF awards #2329097 and #1918549.
 
+## Used repositories 
+We use some (refactored) code from the following repositories:
+* https://github.com/jpmorganchase/QOKit (fast simulation of low-scale QAOA) under Apache License Version 2.0
+* https://github.com/nasa/pysa/ (simulated annealing solver) under Apache License Version 2.0
+* https://github.com/aboev/pymqlib (various classical solvers, including Burer-Monteiro algorithm) under The MIT License (MIT)
+
+The relevant licenses for those repos can also be found in both subfolders with forked repos (whenever relevant), and the above links.
+
 ## References
 This repository is based, among others, on the following papers, which describe some of the algorithms and methods used in the code:
 
