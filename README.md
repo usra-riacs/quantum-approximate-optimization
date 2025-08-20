@@ -4,7 +4,7 @@ Set of tools to implement quantum optimization for classical problems (diagonal 
 
 ## Installation
 
-### Operational system
+### Operating system
 This project has been tested only on Ubuntu.
 
 ### Clone repository
