@@ -347,24 +347,25 @@ class ParallelTemperingRunner:
 
 if __name__ == '__main__':
     from quapopt.hamiltonians.generators import build_hamiltonian_generator
-    from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                     COEFFICIENTS_DISTRIBUTION,
+    from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                     CoefficientsDistribution,
                                                      CoefficientsDistributionSpecifier,
-                                                     HAMILTONIAN_MODELS)
-    from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+                                                     HamiltonianModels)
+    from quapopt import ancillary_functions as anf
+
 
     number_of_qubits = 2 ** 4
     seed_cost_hamiltonian = 0
 
-    coefficients_type = COEFFICIENTS_TYPE.DISCRETE
-    coefficients_distribution = COEFFICIENTS_DISTRIBUTION.Uniform
+    coefficients_type = CoefficientsType.DISCRETE
+    coefficients_distribution = CoefficientsDistribution.Uniform
     coefficients_distribution_properties = {'low': -1, 'high': 1, 'step': 1}
     coefficients_distribution_specifier = CoefficientsDistributionSpecifier(CoefficientsType=coefficients_type,
                                                                             CoefficientsDistributionName=coefficients_distribution,
                                                                             CoefficientsDistributionProperties=coefficients_distribution_properties)
 
     # We generate a Hamiltonian instance. In this case it's a random Sherrington-Kirkpatrick Hamiltonian
-    hamiltonian_model = HAMILTONIAN_MODELS.SherringtonKirkpatrick
+    hamiltonian_model = HamiltonianModels.SherringtonKirkpatrick
     localities = (1, 2)
 
     generator_cost_hamiltonian = build_hamiltonian_generator(hamiltonian_model=hamiltonian_model,

@@ -53,8 +53,15 @@ class QAOARunnerStatevector(QAOARunnerBase):
         self._best_results_container.add_result(result_to_add=tup_to_store,
                                                 score=best_energy)
 
-    def _log_results(self,
+    def log_results(self,
                      qaoa_result: QAOAResult):
+
+        if self.results_logger is None:
+            return
+
+        if self.logging_level is LoggingLevel.NONE or self.logging_level is None:
+            return
+
 
         optimization_overview_df = qaoa_result.to_dataframe_main()
         optimization_overview_dt = SNDT.OptimizationOverview

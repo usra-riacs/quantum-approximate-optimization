@@ -8,7 +8,7 @@ import time
 from typing import List, Tuple, Optional, Any, Union
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from quapopt.circuits.noise.characterization.tomography_tools import (TomographyType,
                                                                       TomographyGatesType)
@@ -27,7 +27,8 @@ from plotly.subplots import make_subplots
 import plotly
 import plotly.graph_objects as go
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import ResultsLogger, LoggingLevel
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_DATA_TYPES as SNDT,
                                                  STANDARD_NAMES_VARIABLES as SNV)
@@ -51,46 +52,47 @@ class DDOTRunner(OverlappingTomographyRunnerBase):
                  number_of_qubits: int,
                  program_gate_builder: AbstractProgramGateBuilder,
                  sdk_name: str,
+                 simulation: bool,
                  numpy_rng_seed: int = None,
                 qubit_indices_physical=None,
                  results_logger_kwargs: Optional[dict] = None,
                  logging_level: LoggingLevel = LoggingLevel.DETAILED,
                  pass_manager_qiskit_indices: StagedPassManager = None,
-                 number_of_qubits_device_qiskit: int = None
+                 number_of_qubits_device_qiskit: int = None,
+
+                 # qiskit-specific kwargs
+                 mock_context_manager_if_simulated: bool = True,
+                 session_ibm=None,
+                 qiskit_sampler_options: Optional[dict] = None,
+                 noiseless_simulation: bool = False,
+                 qiskit_backend=None
 
                  ):
-        tomography_type = TomographyType.DIAGONAL_DETECTOR
-        tomography_gates_type = TomographyGatesType.PAULI
 
         if logging_level is not None and logging_level != LoggingLevel.NONE:
             #TODO(FBM):add defaults
             if results_logger_kwargs is None:
                 raise NotImplementedError("If you want to log results, you need to provide results_logger_kwargs.")
-                experiment_folders_hierarchy = ['DefaultResultsFolder',
-                                                'NoiseCharacterization',
-                                                "DDOT",
-                                                "DefaultSubFolder"]
-                uuid = anf.create_random_uuid()
-                directory_main = None
-                table_name_prefix = None
-                table_name_main = 'DDOTResults'
-                results_logger_kwargs = {'experiment_folders_hierarchy': experiment_folders_hierarchy,
-                                         'uuid': uuid,
-                                         'base_path': directory_main,
-                                         'table_name_prefix': table_name_prefix,
-                                         'table_name_prefix': table_name_main}
 
         super().__init__(number_of_qubits=number_of_qubits,
                          program_gate_builder=program_gate_builder,
-                         tomography_type=tomography_type,
-                         tomography_gates_type=tomography_gates_type,
+                         tomography_type=TomographyType.DIAGONAL_DETECTOR,
+                         tomography_gates_type=TomographyGatesType.PAULI,
                          sdk_name=sdk_name,
+                         simulation=simulation,
+
                          numpy_rng_seed=numpy_rng_seed,
                          qubit_indices_physical=qubit_indices_physical,
                          results_logger_kwargs=results_logger_kwargs,
                          logging_level=logging_level,
                          pass_manager_qiskit_indices=pass_manager_qiskit_indices,
-                         number_of_qubits_device_qiskit=number_of_qubits_device_qiskit
+                         number_of_qubits_device_qiskit=number_of_qubits_device_qiskit,
+
+                         mock_context_manager_if_simulated=mock_context_manager_if_simulated,
+                            session_ibm=session_ibm,
+                            qiskit_sampler_options=qiskit_sampler_options,
+                            noiseless_simulation=noiseless_simulation,
+                         qiskit_backend=qiskit_backend
                          )
 
     def generate_tomography_circuits_random(self,
@@ -676,7 +678,7 @@ if __name__ == '__main__':
         pass_manager = generate_preset_pass_manager(backend=qiskit_backend,
                                                     optimization_level=0)
 
-        circuits_labels, bitstrings_histograms = DDOT_run_test.run_tomography_circuits_qiskit_session(
+        circuits_labels, bitstrings_histograms = DDOT_run_test.run_tomography_circuits_qiskit(
             tomography_circuits=random_circuits,
             qiskit_backend=qiskit_backend,
             simulation=True,

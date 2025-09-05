@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from pydantic import confloat
 import pandas as pd
@@ -10,7 +10,8 @@ import numpy as np
 from quapopt.circuits.gates import (
     AngleCirq,
 )
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.circuits.gates.logical.LogicalGateBuilderCirq import LogicalGateBuilderCirq
 import cirq
 from cirq import Circuit, ZPowGate

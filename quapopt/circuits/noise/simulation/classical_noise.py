@@ -3,9 +3,10 @@ from typing import Tuple, Dict, List, Union
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 
 # Lazy monkey-patching of cupy

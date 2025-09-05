@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import itertools
 from typing import Optional, Union, Callable, List
@@ -9,20 +9,20 @@ from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHa
 
 from quapopt.data_analysis.data_handling import BaseName, \
     HamiltonianInstanceSpecifierGeneral
-from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                 COEFFICIENTS_DISTRIBUTION,
+from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                 CoefficientsDistribution,
                                                  CoefficientsDistributionSpecifier,
                                                  HamiltonianClassSpecifierGeneral,
-                                                 HAMILTONIAN_MODELS)
+                                                 HamiltonianModels)
 
-def _get_default_coefficient_sampling_function(coefficients_distribution: COEFFICIENTS_DISTRIBUTION,
-                                               coefficients_type: COEFFICIENTS_TYPE,
+def _get_default_coefficient_sampling_function(coefficients_distribution: CoefficientsDistribution,
+                                               coefficients_type: CoefficientsType,
                                                coefficients_distribution_properties: dict)->Callable[[np.random.Generator, int], Union[float, int, List[int], List[float]]]:
 
-    if coefficients_distribution in [COEFFICIENTS_DISTRIBUTION.Custom]:
+    if coefficients_distribution in [CoefficientsDistribution.Custom]:
         return None
 
-    if coefficients_type == COEFFICIENTS_TYPE.CONSTANT:
+    if coefficients_type == CoefficientsType.CONSTANT:
         def _coefficient_sampling_function(numpy_rng: Optional[np.random.Generator]=None,
                                            size:Optional[int]=None) -> Union[float, int, List[float], List[int]]:
 
@@ -35,8 +35,8 @@ def _get_default_coefficient_sampling_function(coefficients_distribution: COEFFI
                 return value_coeff
             return [value_coeff]*size
 
-    elif coefficients_type in [COEFFICIENTS_TYPE.CONTINUOUS]:
-        if coefficients_distribution in [COEFFICIENTS_DISTRIBUTION.Uniform]:
+    elif coefficients_type in [CoefficientsType.CONTINUOUS]:
+        if coefficients_distribution in [CoefficientsDistribution.Uniform]:
             _low = coefficients_distribution_properties['low']
             _high = coefficients_distribution_properties['high']
             def _coefficient_sampling_function(numpy_rng: np.random.Generator,
@@ -46,7 +46,7 @@ def _get_default_coefficient_sampling_function(coefficients_distribution: COEFFI
                     return numbers.tolist() if size is not None else numbers
 
 
-        elif coefficients_distribution in [COEFFICIENTS_DISTRIBUTION.Normal]:
+        elif coefficients_distribution in [CoefficientsDistribution.Normal]:
             _loc = coefficients_distribution_properties['loc']
             _scale = coefficients_distribution_properties['scale']
 
@@ -56,8 +56,8 @@ def _get_default_coefficient_sampling_function(coefficients_distribution: COEFFI
                 numbers = numpy_rng.normal(loc=_loc, scale=_scale, size=size)
                 return numbers.tolist() if size is not None else numbers
 
-    elif coefficients_type in [COEFFICIENTS_TYPE.DISCRETE]:
-        if coefficients_distribution in [COEFFICIENTS_DISTRIBUTION.Normal]:
+    elif coefficients_type in [CoefficientsType.DISCRETE]:
+        if coefficients_distribution in [CoefficientsDistribution.Normal]:
             _loc = coefficients_distribution_properties['loc']
             _scale = coefficients_distribution_properties['scale']
 
@@ -68,7 +68,7 @@ def _get_default_coefficient_sampling_function(coefficients_distribution: COEFFI
 
                 return numbers.tolist() if size is not None else numbers
 
-        elif coefficients_distribution in [COEFFICIENTS_DISTRIBUTION.Uniform]:
+        elif coefficients_distribution in [CoefficientsDistribution.Uniform]:
 
             if 'values' in coefficients_distribution_properties:
                 _values = coefficients_distribution_properties['values']
@@ -101,7 +101,7 @@ class RandomClassicalHamiltonianGeneratorBase:
     def __init__(self,
                  #number_of_qubits: int,
                  localities: Union[int,List[int]] = None,
-                 hamiltonian_model_name: BaseName = HAMILTONIAN_MODELS.Unspecified,
+                 hamiltonian_model_name: BaseName = HamiltonianModels.Unspecified,
                  coefficients_distribution_specifier: [CoefficientsDistributionSpecifier] = None,
                  hamiltonian_class_specifier:Optional[HamiltonianClassSpecifierGeneral] = None,
                  #average_degree: Optional[Union[float, str]] = None,
@@ -179,6 +179,11 @@ class RandomClassicalHamiltonianGeneratorBase:
         return self._hamiltonian_class_specifier
 
     @property
+    def hamiltonian_class_description(self,
+                                      long_strings:bool=False) -> str:
+        return self.hamiltonian_class_specifier.get_description_string(long_strings=long_strings)
+
+    @property
     def hamiltonian_model_name(self) -> BaseName:
         return self._hamiltonian_model_name
 
@@ -189,11 +194,11 @@ class RandomClassicalHamiltonianGeneratorBase:
         return self._localities
 
     @property
-    def coefficients_type(self) -> type:
+    def coefficients_type(self) -> BaseName:
         return self._CDS.CoefficientsType
 
     @property
-    def coefficients_distribution(self) -> str:
+    def coefficients_distribution(self) -> BaseName:
         return self._CDS.CoefficientsDistributionName
 
     @property
@@ -283,7 +288,7 @@ class RandomClassicalHamiltonianGeneratorBase:
         if number_of_qubits>500:
             print("Generating new instance.")
 
-        if self.coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Custom:
+        if self.coefficients_distribution == CoefficientsDistribution.Custom:
             raise NotImplementedError(
                 f"This method must be implemented in a subclass for 'custom' coefficients distribution.")
 
@@ -351,10 +356,10 @@ if __name__ == '__main__':
 
 
 
-    cdp = CoefficientsDistributionSpecifier(CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                                            CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+    cdp = CoefficientsDistributionSpecifier(CoefficientsType=CoefficientsType.DISCRETE,
+                                            CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                                             CoefficientsDistributionProperties={'low': -10, 'high': 10, 'step':1})
-    hamiltonian_spec = HamiltonianClassSpecifierGeneral(hamiltonian_model_name=HAMILTONIAN_MODELS.GeneralRandom,
+    hamiltonian_spec = HamiltonianClassSpecifierGeneral(hamiltonian_model_name=HamiltonianModels.GeneralRandom,
                                                         localities=[1,2],
                                                         coefficients_distribution_specifier=cdp)
 

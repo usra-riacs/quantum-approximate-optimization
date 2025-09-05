@@ -31,6 +31,7 @@ except(ImportError, ModuleNotFoundError):
 import pandas as pd
 pd.set_option('display.max_columns', None)
 
+
 if __name__ == '__main__':
     try:
         import numba, cupy
@@ -51,4 +52,3 @@ if __name__ == '__main__':
         pass
 
     print("\nAvailable simulators:", AVAILABLE_SIMULATORS)
-

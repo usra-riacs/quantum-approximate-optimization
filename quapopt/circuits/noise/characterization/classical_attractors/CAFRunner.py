@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 from typing import List, Optional, Tuple, Any
 
 import numpy as np
@@ -18,7 +18,8 @@ except(ImportError, ModuleNotFoundError):
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_DATA_TYPES as SNDT)
 
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import LoggingLevel
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.optimization.QAOA import PhaseSeparatorType, MixerType
 
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_VARIABLES as SNV)
@@ -30,7 +31,7 @@ from quapopt.circuits.gates.gate_delays import DelaySchedulerBase, add_delays_to
 from quapopt.circuits.noise.characterization.classical_attractors import (MirrorCircuitType,
                                                                           MirrorCircuitSpecification,
                                                                           _standardized_table_name_CAF,
-                                                                          get_CAF_standardized_folder_hierarchy)
+                                                                          get_CAF_standardized_folder_hierarchy_depreciated)
 
 
 class CAFRunner(DDOTRunner):
@@ -48,34 +49,32 @@ class CAFRunner(DDOTRunner):
                  program_gate_builder: AbstractProgramGateBuilder,
                  mirror_circuit_specification: MirrorCircuitSpecification,
                  sdk_name: str,
+                 simulation:bool,
                  numpy_rng_seed: int = None,
                  results_logger_kwargs: Optional[dict] = None,
                  logging_level: LoggingLevel = LoggingLevel.DETAILED,
                  pass_manager_qiskit_indices: StagedPassManager = None,
                  qubit_indices_physical: Optional[List[int] | Tuple[int, ...]] = None,
-                 number_of_qubits_device_qiskit: int = None
+                 number_of_qubits_device_qiskit: int = None,
+
+                 # qiskit-specific kwargs
+                 mock_context_manager_if_simulated: bool = True,
+                 session_ibm=None,
+                 qiskit_sampler_options: Optional[dict] = None,
+                 noiseless_simulation: bool = False,
+                qiskit_backend=None
 
                  ):
 
         #TODO(FBM): add automated, modernized metadata managment
 
+        if sdk_name.lower() in ['qiskit']:
+            assert qiskit_backend is not None, "For Qiskit SDK, you need to provide a qiskit_backend."
+
         if logging_level is not None and logging_level != LoggingLevel.NONE:
             if results_logger_kwargs is None:
                 #TODO(FBM): add defaults
                 raise NotImplementedError("To use logging, you need to provide results_logger_kwargs.")
-                experiment_folders_hierarchy = ['DefaultResultsFolder',
-                                                'NoiseCharacterization',
-                                                "CAFExperiments",
-                                                "DefaultSubFolder"]
-                uuid = anf.create_random_uuid()
-                directory_main = None
-                table_name_prefix = None
-                table_name_main = 'CAFResults'
-                results_logger_kwargs = {'experiment_folders_hierarchy': experiment_folders_hierarchy,
-                                         'uuid': uuid,
-                                         'base_path': directory_main,
-                                         'table_name_prefix': table_name_prefix,
-                                         'table_name_prefix': table_name_main}
 
         mcs = mirror_circuit_specification.copy()
 
@@ -92,12 +91,19 @@ class CAFRunner(DDOTRunner):
                 fixed_ansatz = CAFRunner.get_qaoa_ansatz_qiskit_router(phase_hamiltonian=mcs.phase_hamiltonian_qaoa,
                                                                        qiskit_pass_manager=mcs.pass_manager_mirror_circuit,
                                                                        ansatz_kwargs=mcs.mirror_circuit_ansatz_kwargs,
-                                                                       assert_no_ancilla_qubits=True)
+                                                                       #assert_no_ancilla_qubits=False
+                                                                       )
                 if qubit_indices_physical is not None:
                     print(
                         "Warning: qubit_indices_physical is provided, but it will be ignored for the SABRE circuit type. ")
                 qubit_indices_physical = bck_utils.get_nontrivial_physical_indices_from_circuit(
-                    quantum_circuit=fixed_ansatz.quantum_circuit)
+                    quantum_circuit=fixed_ansatz.quantum_circuit,
+                filter_ancillas=True)
+
+
+                print("PHYSICAL QUBIT INDICES:",qubit_indices_physical)
+                print("Number of qubits:",len(qubit_indices_physical))
+                print("Expected:",number_of_qubits)
 
 
             else:
@@ -107,15 +113,24 @@ class CAFRunner(DDOTRunner):
 
         self._mirror_circuit_specification = mcs
 
+
         super().__init__(number_of_qubits=number_of_qubits,
                          program_gate_builder=program_gate_builder,
                          sdk_name=sdk_name,
+                         simulation=simulation,
+
                          numpy_rng_seed=numpy_rng_seed,
                          results_logger_kwargs=results_logger_kwargs,
                          logging_level=logging_level,
                          pass_manager_qiskit_indices=pass_manager_qiskit_indices,
                          qubit_indices_physical=qubit_indices_physical,
-                         number_of_qubits_device_qiskit=number_of_qubits_device_qiskit
+                         number_of_qubits_device_qiskit=number_of_qubits_device_qiskit,
+
+                            mock_context_manager_if_simulated=mock_context_manager_if_simulated,
+                            session_ibm=session_ibm,
+                            qiskit_sampler_options=qiskit_sampler_options,
+                            noiseless_simulation=noiseless_simulation,
+                         qiskit_backend=qiskit_backend
                          )
 
     def _get_mirror_circuit(self,
@@ -186,6 +201,16 @@ class CAFRunner(DDOTRunner):
         See LinearSwapNetworkQAOACircuit and FullyConnectedQAOACircuit for details
         :return:
         """
+        if ansatz_kwargs is not None:
+            ansatz_kwargs = ansatz_kwargs.copy()
+            if 'program_gate_builder' in ansatz_kwargs:
+                del ansatz_kwargs['program_gate_builder']
+
+
+            if qubit_indices_physical is None and 'qubit_indices_physical' in ansatz_kwargs:
+                qubit_indices_physical = ansatz_kwargs['qubit_indices_physical']
+                del ansatz_kwargs['qubit_indices_physical']
+
 
         if use_linear_swap_network:
             from quapopt.optimization.QAOA.circuits.LinearSwapNetworkQAOACircuit import LinearSwapNetworkQAOACircuit
@@ -196,6 +221,7 @@ class CAFRunner(DDOTRunner):
                                  'mixer_type': None}
             if 'linear_chains_pair_device' not in ansatz_kwargs:
                 qbts_indices = qubit_indices_physical
+
 
                 # If this is not specified, we assume that the chains of qubits correspond to the list of qubits
                 tuple_0_device = tuple(
@@ -221,12 +247,13 @@ class CAFRunner(DDOTRunner):
                                  'mixer_type': None,
                                  }
 
+
             ansatz_qaoa = FullyConnectedQAOACircuit(sdk_name=sdk_name,
                                                     depth=1,
                                                     hamiltonian_phase=phase_hamiltonian,
                                                     program_gate_builder=program_gate_builder,
                                                     **ansatz_kwargs,
-                                                    input_state='|0>',
+                                                    initial_state='|0>',
                                                     qubit_indices_physical=qubit_indices_physical)
         return ansatz_qaoa
 
@@ -235,7 +262,7 @@ class CAFRunner(DDOTRunner):
             phase_hamiltonian: ClassicalHamiltonian,
             qiskit_pass_manager: StagedPassManager,
             ansatz_kwargs: Optional[dict] = None,
-            assert_no_ancilla_qubits: bool = True
+            #assert_no_ancilla_qubits: bool = True
     ) -> MappedAnsatzCircuit:
         # TODO(FBM): just generating it this way is likely to cause indexing errors. Should either solve this or remove
 
@@ -248,8 +275,8 @@ class CAFRunner(DDOTRunner):
                              'mixer_type': None,
                              }
 
-        if not assert_no_ancilla_qubits:
-            raise NotImplementedError("THis function is not implemented for circuits with ancilla qubits yet. ")
+        # if not assert_no_ancilla_qubits:
+        #     raise NotImplementedError("THis function is not implemented for circuits with ancilla qubits yet. ")
 
         ansatz_qaoa = SabreMappedQAOACircuit(qiskit_pass_manager=qiskit_pass_manager,
                                              # depth=depth,
@@ -258,10 +285,13 @@ class CAFRunner(DDOTRunner):
                                              # phase_separator_type=phase_separator_type,
                                              # mixer_type=mixer_type,
                                              **ansatz_kwargs,
-                                             enforce_no_ancilla_qubits=assert_no_ancilla_qubits
+                                             #enforce_no_ancilla_qubits=assert_no_ancilla_qubits
 
 
                                              )
+
+
+
 
         return ansatz_qaoa
 
@@ -383,11 +413,15 @@ class CAFRunner(DDOTRunner):
         circuit_to_be_mirrored = ansatz_circuit.quantum_circuit
         parameter_names = ansatz_circuit.parameters
 
+        self._qubit_indices_physical = ansatz_circuit.logical_to_physical_qubits_map
+
+
         if mirror_circuit_parameters_values is not None:
             circuit_to_be_mirrored = self._bind_parameters_mirror_circuit(mirror_circuit=circuit_to_be_mirrored,
                                                                           mirror_circuit_type=mirror_circuit_type,
                                                                           parameter_values=mirror_circuit_parameters_values,
                                                                           parameter_names=parameter_names)
+
 
         return circuit_to_be_mirrored, parameter_names
 
@@ -443,7 +477,21 @@ class CAFRunner(DDOTRunner):
                                                                delays_in_microseconds_list=delays_list)
 
         if add_measurements:
-            circuits_with_delays = [[self.append_measurements(circuit=circuit) for circuit in circuits]
+
+            reverse_qiskit_indices = False
+            if mirror_circuit is not None:
+                mirror_circuit_type = self._mirror_circuit_specification.mirror_circuit_type
+                if mirror_circuit_type in [MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+                                           MirrorCircuitType.QAOA_FULLY_CONNECTED]:
+                    reverse_qiskit_indices = True
+                elif mirror_circuit_type == MirrorCircuitType.QAOA_SABRE:
+                    reverse_qiskit_indices = False
+                else:
+                    raise ValueError(f"Unsupported mirror circuit type: {mirror_circuit_type}")
+
+            #raise KeyboardInterrupt
+            circuits_with_delays = [[self.append_measurements(circuit=circuit,
+                                                              reverse_indices=reverse_qiskit_indices) for circuit in circuits]
                                     for circuits in circuits_with_delays]
 
         return circuit_labels, circuits_with_delays
@@ -574,15 +622,9 @@ class CAFRunner(DDOTRunner):
         assert mcs.mirror_circuit_parameters_values is not None, ("To generate the experiments, "
                                                                   "we need to provide the parameters for the mirror circuit.")
 
-        mcs_type_name = mcs.qubit_mapping_type.value
-        mcs_parameter_values = mcs.mirror_circuit_parameters_values
 
         all_experiments = []
-        df_mcr_metadata = pd.DataFrame(data={
-            "NumberOfInputStates": [number_of_input_states_per_experiment],
-            "MCType": [mcs_type_name],
-            "MCAnsatzDescription": [mcs.get_ansatz_description_string()],
-            f"MC{SNV.Angles.id_long}": [mcs_parameter_values]})
+
 
         for delay_scheduler in delay_schedules_list:
             # We create schedule of delays for given scheduler
@@ -618,7 +660,7 @@ class CAFRunner(DDOTRunner):
                 df_metadata_exp = pd.DataFrame(data={"DSDescription": [delay_scheduler.get_string_description()],
                                                      "MCRepeats": [mcr]})
 
-                df_metadata_exp = pd.concat([df_metadata_exp, df_mcr_metadata], axis=1)
+                # df_metadata_exp = pd.concat([df_metadata_exp, df_mcr_metadata], axis=1)
 
                 all_experiments.append((circuits_labels, circuits_list, df_metadata_exp))
 
@@ -627,18 +669,15 @@ class CAFRunner(DDOTRunner):
     def run_CAF_experiments_qiskit_session(self,
                                            CAF_experiments_list: List[
                                                Tuple[List[Tuple[int, ...]], List[AbstractCircuit], pd.DataFrame]],
-                                           qiskit_backend,
-                                           simulation: bool,
                                            number_of_shots,
-                                           qiskit_sampler_options: Optional[dict] = None,
-                                           qiskit_pass_manager=None,
+                                           qiskit_pass_manager_before_execution=None,
                                            show_progress_bar=True,
                                            max_attempts_run=5,
-                                           mock_context_manager_if_simulated=True,
                                            return_results: bool = False,
                                            additional_metadata_experiment: Optional[pd.DataFrame] = None,
                                            batched_execution: bool = False,
-                                           progress_bar_in_notebook: bool = True
+                                           progress_bar_in_notebook: bool = True,
+                                           table_name_suffix:Optional[str]=None
                                            ) -> Optional[Tuple[
         List[Tuple[int, ...]], List[Tuple[np.ndarray, np.ndarray]]]]:
         """
@@ -655,7 +694,7 @@ class CAFRunner(DDOTRunner):
         :param simulation:
         :param number_of_shots:
         :param qiskit_sampler_options:
-        :param qiskit_pass_manager:
+        :param qiskit_pass_manager_before_execution:
         :param show_progress_bar:
         :param max_attempts_run:
         :param mock_context_manager_if_simulated:
@@ -666,8 +705,9 @@ class CAFRunner(DDOTRunner):
         # (and we'll pass them to parent class for running)
         flat_tomography_circuits = []
         table_names_flat = []
+        logging_annotation = []
 
-        if simulation:
+        if self._simulation:
             ignore_logging_level = False
 
         else:
@@ -679,14 +719,21 @@ class CAFRunner(DDOTRunner):
             # just to makes sure that we LOG everything
             ignore_logging_level = True
 
-        for exp_set_index, (circuits_labels, circuits_list, df_metadata_exp) in enumerate(CAF_experiments_list):
+
+
+        for exp_index, (circuits_labels, circuits_list, df_metadata_exp) in enumerate(CAF_experiments_list):
             assert len(df_metadata_exp) == 1, "The metadata dataframe should be of length 1"
 
             delay_schedule_description = df_metadata_exp['DSDescription'].values[0]
             mcr = df_metadata_exp['MCRepeats'].values[0]
             table_name_add = _standardized_table_name_CAF(delay_schedule_description=delay_schedule_description,
                                                          mirror_circuit_repeats=mcr)
+            table_name_add = self.results_logger.join_table_name_parts([table_name_add, table_name_suffix])
             table_names_flat += [table_name_add] * len(circuits_labels)
+
+            assert len(df_metadata_exp) == 1, "The metadata dataframe should be of length 1"
+
+            logging_annotation += [df_metadata_exp.to_dict(orient='records')[0]]*len(circuits_labels)
 
             # To avoid logging metadata for each circuit (as could be done by passing exploded list to the parent class
             # runner), we just log it once here.
@@ -703,7 +750,6 @@ class CAFRunner(DDOTRunner):
 
                 self.results_logger.write_results(dataframe=df_metadata_exp,
                                                   data_type=SNDT.CircuitsMetadata,
-                                                  #annotate=False,
                                                   ignore_logging_level=ignore_logging_level,
                                                   additional_annotation_dict=None,
                                                   table_name_suffix=table_name_add,
@@ -715,22 +761,18 @@ class CAFRunner(DDOTRunner):
         assert len(flat_tomography_circuits) == len(table_names_flat), \
             ("The number of circuits and the number of table names must be the same.")
 
-        return self.run_tomography_circuits_qiskit_session(tomography_circuits=flat_tomography_circuits,
-                                                           qiskit_backend=qiskit_backend,
-                                                           simulation=simulation,
-                                                           number_of_shots=number_of_shots,
-                                                           qiskit_sampler_options=qiskit_sampler_options,
-                                                           qiskit_pass_manager=qiskit_pass_manager,
-                                                           logging_table_names=table_names_flat,
-                                                           logging_annotation=None,
-                                                           logging_metadata=None,
-                                                           show_progress_bar=show_progress_bar,
-                                                           max_attempts_run=max_attempts_run,
-                                                           mock_context_manager_if_simulated=mock_context_manager_if_simulated,
-                                                           return_results=return_results,
-                                                           batched_execution=batched_execution,
-                                                           progress_bar_in_notebook=progress_bar_in_notebook
-                                                           )
+        return self.run_tomography_circuits_qiskit(tomography_circuits=flat_tomography_circuits,
+                                                   number_of_shots=number_of_shots,
+                                                   qiskit_pass_manager=qiskit_pass_manager_before_execution,
+                                                   logging_table_names=table_names_flat,
+                                                   logging_annotation=logging_annotation,
+                                                   logging_metadata=None,
+                                                   show_progress_bar=show_progress_bar,
+                                                   max_attempts_run=max_attempts_run,
+                                                   return_results=return_results,
+                                                   batched_execution=batched_execution,
+                                                   progress_bar_in_notebook=progress_bar_in_notebook
+                                                   )
 
 
 if __name__ == "__main__":
@@ -781,20 +823,20 @@ if __name__ == "__main__":
     random_parameters = numpy_rng.uniform(low=-np.pi, high=np.pi, size=2)
 
     from quapopt.hamiltonians.generators import build_hamiltonian_generator
-    from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                     COEFFICIENTS_DISTRIBUTION,
+    from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                     CoefficientsDistribution,
                                                      CoefficientsDistributionSpecifier,
-                                                     HAMILTONIAN_MODELS)
+                                                     HamiltonianModels)
 
-    coefficients_type = COEFFICIENTS_TYPE.DISCRETE
-    coefficients_distribution = COEFFICIENTS_DISTRIBUTION.Uniform
+    coefficients_type = CoefficientsType.DISCRETE
+    coefficients_distribution = CoefficientsDistribution.Uniform
     coefficients_distribution_properties = {'low': -1, 'high': 1, 'step': 1}
     coefficients_distribution_specifier = CoefficientsDistributionSpecifier(CoefficientsType=coefficients_type,
                                                                             CoefficientsDistributionName=coefficients_distribution,
                                                                             CoefficientsDistributionProperties=coefficients_distribution_properties)
 
     # We generate a Hamiltonian instance. In this case it's a random Sherrington-Kirkpatrick Hamiltonian
-    hamiltonian_model = HAMILTONIAN_MODELS.SherringtonKirkpatrick
+    hamiltonian_model = HamiltonianModels.SherringtonKirkpatrick
     localities = (1, 2)
     generator_cost_hamiltonian = build_hamiltonian_generator(hamiltonian_model=hamiltonian_model,
                                                              localities=localities,
@@ -838,7 +880,7 @@ if __name__ == "__main__":
                                                 simulation=True,
                                                 number_of_shots=number_of_samples_test,
                                                 qiskit_sampler_options=None,
-                                                qiskit_pass_manager=pass_manager,
+                                                qiskit_pass_manager_before_execution=pass_manager,
                                                 show_progress_bar=True,
                                                 max_attempts_run=5,
                                                 mock_context_manager_if_simulated=True,

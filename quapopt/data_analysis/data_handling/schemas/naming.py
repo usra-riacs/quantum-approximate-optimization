@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import enum
 from dataclasses import dataclass, field, fields, MISSING
@@ -101,7 +101,6 @@ class StandardNamesBaseVariables:
         for i in range(len(all_ids)):
             for j in range(i + 1, len(all_ids)):
                 if all_ids[i] == all_ids[j]:
-
                     raise ValueError(f"Duplicate ID {all_ids[i]} found in {self.__class__.__name__}")
                 if all_long_ids[i] == all_long_ids[j]:
                     raise ValueError(f"Duplicate long ID {all_long_ids[i]} found in {self.__class__.__name__}")
@@ -166,7 +165,7 @@ class StandardNamesBaseDataTypes(StandardNamesBaseVariables):
         return None
 
 
-@dataclass(frozen=True)
+@dataclass
 class StandardizedSpecifier:
     """Modern dataclass-based replacement for StandardizedSpecifier with metadata control."""
 
@@ -293,16 +292,19 @@ class StandardizedSpecifier:
 
     def merge_with(self,
                    other: 'StandardizedSpecifier',
-                   allow_conflicts: bool = False) -> 'StandardizedSpecifier':
+                   allow_conflicts: bool = False,
+                   in_place: bool = False) -> Optional['StandardizedSpecifier']:
         """
         Merge this specifier with another, checking for attribute conflicts.
         
         Args:
             other: Another StandardizedSpecifier to merge with
             allow_conflicts: If False, raises ValueError when same field has different values
+            in_place: If True, modify self instead of returning new instance
             
         Returns:
-            New StandardizedSpecifier instance of the same type as self with merged attributes
+            If in_place=False: New StandardizedSpecifier instance with merged attributes
+            If in_place=True: None (self is modified)
             
         Raises:
             ValueError: If conflicting values found and allow_conflicts=False
@@ -310,34 +312,46 @@ class StandardizedSpecifier:
         """
         if not isinstance(other, StandardizedSpecifier):
             raise TypeError(f"Can only merge with StandardizedSpecifier, got {type(other)}")
-        
+
         # Get field dictionaries for both specifiers
         self_fields = {f.name: getattr(self, f.name) for f in fields(self)}
         other_fields = {f.name: getattr(other, f.name) for f in fields(other)}
-        
+
         # Check for conflicts
         conflicts = []
         for field_name in set(self_fields.keys()) & set(other_fields.keys()):
             self_value = self_fields[field_name]
-            other_value = other_fields[field_name] 
-            
+            other_value = other_fields[field_name]
+
             # Deep comparison handling different types
             if not self._values_equal(self_value, other_value):
                 conflicts.append((field_name, self_value, other_value))
-        
+
         if conflicts and not allow_conflicts:
             conflict_details = []
             for field_name, self_val, other_val in conflicts:
                 conflict_details.append(f"  {field_name}: {self_val} != {other_val}")
             raise ValueError(f"Conflicting field values found:\n" + "\n".join(conflict_details))
-        
+
         # Create merged field dictionary (other takes precedence)
         merged_fields = {**self_fields, **other_fields}
-        
+
+        # Handle in-place merge (merge all compatible fields)
+        if in_place:
+            for field_name, field_value in other_fields.items():
+                # Try to set the attribute - if it fails, skip it
+                try:
+                    setattr(self, field_name, field_value)
+                except (AttributeError, TypeError):
+                    # Skip fields that can't be set (e.g., init=False computed fields)
+                    continue
+            return None
+
+        # Create new instance (original behavior)
         # Helper function to filter init-only fields
         def get_init_fields(obj_type):
             return {f.name: f for f in fields(obj_type) if f.init}
-        
+
         # Check if we can use an existing type (self's type can accommodate all fields)
         self_init_fields = get_init_fields(type(self))
         self_init_field_names = set(self_init_fields.keys())
@@ -345,7 +359,7 @@ class StandardizedSpecifier:
             # All merged fields exist in self's type - filter to init-only fields
             init_only_fields = {k: v for k, v in merged_fields.items() if k in self_init_field_names}
             return type(self)(**init_only_fields)
-        
+
         # Check if we can use other's type
         other_init_fields = get_init_fields(type(other))
         other_init_field_names = set(other_init_fields.keys())
@@ -353,11 +367,12 @@ class StandardizedSpecifier:
             # All merged fields exist in other's type - filter to init-only fields
             init_only_fields = {k: v for k, v in merged_fields.items() if k in other_init_field_names}
             return type(other)(**init_only_fields)
-        
+
         # Need to create a dynamic type that combines both
         return self._create_merged_type(other, merged_fields)
-    
-    def _create_merged_type(self, other: 'StandardizedSpecifier', merged_fields: Dict[str, Any]) -> 'StandardizedSpecifier':
+
+    def _create_merged_type(self, other: 'StandardizedSpecifier',
+                            merged_fields: Dict[str, Any]) -> 'StandardizedSpecifier':
         """
         Create a new dynamic dataclass type that combines fields from both specifiers.
         
@@ -370,11 +385,11 @@ class StandardizedSpecifier:
         """
         # Create field definitions for the new type
         field_definitions = {}
-        
+
         # Collect field information from both types
         self_field_info = {f.name: f for f in fields(self)}
         other_field_info = {f.name: f for f in fields(other)}
-        
+
         # Process each field in merged_fields
         for field_name, field_value in merged_fields.items():
             # Determine field type and default from original field definitions
@@ -390,24 +405,24 @@ class StandardizedSpecifier:
                 # This shouldn't happen, but handle it gracefully
                 field_type = type(field_value) if field_value is not None else Any
                 field_default = field_value
-            
+
             field_definitions[field_name] = (field_type, field_default)
-        
+
         # Generate a unique class name
         self_name = type(self).__name__
         other_name = type(other).__name__
-        merged_class_name = f"Merged;{self_name}_{other_name}"
-        
+        merged_class_name = f"Merged;{self_name},{other_name}"
+
         # Create the new dataclass type
         merged_class = self._make_dataclass(merged_class_name, field_definitions)
-        
+
         # Filter merged_fields to only include init-able fields
         merged_class_init_fields = {f.name for f in fields(merged_class) if f.init}
         init_only_fields = {k: v for k, v in merged_fields.items() if k in merged_class_init_fields}
-        
+
         # Create and return instance
         return merged_class(**init_only_fields)
-    
+
     def _make_dataclass(self, class_name: str, field_definitions: Dict[str, tuple]) -> type:
         """
         Create a dataclass dynamically with proper field ordering.
@@ -423,37 +438,42 @@ class StandardizedSpecifier:
         # Non-default fields must come before default fields in dataclass
         non_default_fields = []
         default_fields = []
-        
+
         for field_name, (field_type, field_default) in field_definitions.items():
             if field_default is None:
                 non_default_fields.append((field_name, field_type))
             else:
-                default_fields.append((field_name, field_type, field_default))
-        
+                # Check if default is mutable (like a specifier object)
+                if hasattr(field_default, '__dict__') and not isinstance(field_default, (str, int, float, bool, tuple)):
+                    # For mutable objects, we'll handle them as non-default and set after instantiation
+                    non_default_fields.append((field_name, field_type))
+                else:
+                    default_fields.append((field_name, field_type, field_default))
+
         # Create ordered annotations and defaults
         annotations = {}
         defaults = {}
-        
+
         # Add non-default fields first
         for field_name, field_type in non_default_fields:
             annotations[field_name] = field_type
-        
+
         # Add default fields after
         for field_name, field_type, field_default in default_fields:
             annotations[field_name] = field_type
             defaults[field_name] = field_default
-        
+
         # Create class attributes
         class_attrs = {
             '__annotations__': annotations,
             **defaults
         }
-        
+
         # Create the class
         new_class = type(class_name, (StandardizedSpecifier,), class_attrs)
 
-        return dataclass(frozen=True)(new_class)
-    
+        return dataclass(new_class)
+
     def _values_equal(self, val1: Any, val2: Any) -> bool:
         """
         Compare two values for equality, handling special cases.
@@ -469,34 +489,31 @@ class StandardizedSpecifier:
             return True
         if val1 is None or val2 is None:
             return False
-            
+
         # Handle numpy arrays
         if hasattr(val1, '__array__') and hasattr(val2, '__array__'):
             try:
                 return np.array_equal(val1, val2)
             except:
                 return False
-        
+
         # Handle tuples/lists
         if isinstance(val1, (tuple, list)) and isinstance(val2, (tuple, list)):
             if len(val1) != len(val2):
                 return False
             return all(self._values_equal(v1, v2) for v1, v2 in zip(val1, val2))
-        
+
         # Handle dictionaries
         if isinstance(val1, dict) and isinstance(val2, dict):
             if set(val1.keys()) != set(val2.keys()):
                 return False
             return all(self._values_equal(val1[k], val2[k]) for k in val1.keys())
-        
+
         # Standard equality
         try:
             return val1 == val2
         except:
             return False
-
-
-
 
 
 ##########################################
@@ -513,7 +530,7 @@ class _StandardNamesDataCategories(StandardNamesBaseDataTypes):
     UnspecifiedCategory: Final[BaseNameDataType] = BaseNameDataType('Unc', 'UnspecifiedCategory', "UnspecifiedCategory")
 
 
-DATA_CATEGORIES: Final[_StandardNamesDataCategories] = _StandardNamesDataCategories()
+DATA_CATEGORIES: _StandardNamesDataCategories = _StandardNamesDataCategories()
 
 if __name__ == "__main__":
     SNDC = DATA_CATEGORIES
@@ -532,13 +549,13 @@ class _StandardNamesDataSubCategories(StandardNamesBaseDataTypes):
     __lld_id = SNDC.LowLevelData.data_category
     __un_id = SNDC.UnspecifiedCategory.data_category
 
-    #JobsData = BaseNameDataType('JD', 'JobsData', __lld_id, 'JobsData')
-    #JobsSpecification = BaseNameDataType('JS', 'JobsSpecification', __met_id, 'JobsSpecification')
+    # JobsData = BaseNameDataType('JD', 'JobsData', __lld_id, 'JobsData')
+    # JobsSpecification = BaseNameDataType('JS', 'JobsSpecification', __met_id, 'JobsSpecification')
     ExperimentSetMetadata = BaseNameDataType('ESM', 'ExperimentSetMetadata', __met_id, 'ExperimentSetMetadata')
-    ExperimentInstanceMetadata = BaseNameDataType('EIM', 'ExperimentInstanceMetadata', __met_id, 'ExperimentInstanceMetadata')
+    ExperimentInstanceMetadata = BaseNameDataType('EIM', 'ExperimentInstanceMetadata', __met_id,
+                                                  'ExperimentInstanceMetadata')
 
     DatasetsInfo = BaseNameDataType('DI', 'DatasetsInfo', __met_id, 'DatasetsInfo')
-
 
     Overviews = BaseNameDataType('Ov', 'Overviews', __res_id, 'Overviews')
     ResultsRaw = BaseNameDataType('RR', 'ResultsRaw', __res_id, 'ResultsRaw')
@@ -548,7 +565,7 @@ class _StandardNamesDataSubCategories(StandardNamesBaseDataTypes):
     UnspecifiedSubCategory = BaseNameDataType('Uns', 'UnspecifiedSubCategory', __un_id, 'UnspecifiedSubCategory')
 
 
-DATA_SUBCATEGORIES: Final[_StandardNamesDataSubCategories] = _StandardNamesDataSubCategories()
+DATA_SUBCATEGORIES: _StandardNamesDataSubCategories = _StandardNamesDataSubCategories()
 
 
 @dataclass(frozen=True)
@@ -558,10 +575,10 @@ class _StandardNamesDataTypes(StandardNamesBaseDataTypes):
     __OV = (SNDSC.Overviews.data_category, SNDSC.Overviews.data_subcategory)
     __RR = (SNDSC.ResultsRaw.data_category, SNDSC.ResultsRaw.data_subcategory)
     __RP = (SNDSC.ResultsProcessed.data_category, SNDSC.ResultsProcessed.data_subcategory)
-    #__JD = (SNDSC.JobsData.data_category, SNDSC.JobsData.data_subcategory)
-    #__JS = (SNDSC.JobsSpecification.data_category, SNDSC.JobsSpecification.data_subcategory)
+    # __JD = (SNDSC.JobsData.data_category, SNDSC.JobsData.data_subcategory)
+    # __JS = (SNDSC.JobsSpecification.data_category, SNDSC.JobsSpecification.data_subcategory)
     __EIS = (SNDSC.ExperimentInstanceMetadata.data_category, SNDSC.ExperimentInstanceMetadata.data_subcategory)
-    __ESM = (SNDSC.ExperimentSetMetadata.data_category, SNDSC.ExperimentSetMetadata.data_subcategory)
+    #__ESM = (SNDSC.ExperimentSetMetadata.data_category, SNDSC.ExperimentSetMetadata.data_subcategory)
 
     __DI = (SNDSC.DatasetsInfo.data_category, SNDSC.DatasetsInfo.data_subcategory)
     # unspecifiecd data type
@@ -588,17 +605,24 @@ class _StandardNamesDataTypes(StandardNamesBaseDataTypes):
 
     # ____________ Jobs metadata types ____________
     JobMetadata = BaseNameDataType('JMD', 'JobMetadata', __EIS[0], __EIS[1])
-    #ExperimentInstanceTracking = BaseNameDataType('EIT', 'ExperimentInstanceTracking', __EIS[0], __EIS[1])
-    #ExperimentInstanceLoggingMetadata = BaseNameDataType('ELI', 'ExperimentInstanceLoggingMetadata', __EIS[0], __EIS[1])
+    # ExperimentInstanceTracking = BaseNameDataType('EIT', 'ExperimentInstanceTracking', __EIS[0], __EIS[1])
+    # ExperimentInstanceLoggingMetadata = BaseNameDataType('ELI', 'ExperimentInstanceLoggingMetadata', __EIS[0], __EIS[1])
 
-    ExperimentSetTracking = BaseNameDataType('EST', 'ExperimentSetTracking', __ESM[0], __ESM[1])
-    #ExperimentSetLoggingMetadata = BaseNameDataType('ELS', 'ExperimentSetLoggingMetadata', __ESM[0], __ESM[1])
-    BackendData = BaseNameDataType('BCK', 'BackendData', __ESM[0], __ESM[1])
+    ExperimentSetTracking = BaseNameDataType('EST', 'ExperimentSetTracking', __EIS[0], __EIS[1])
+    # ExperimentSetLoggingMetadata = BaseNameDataType('ELS', 'ExperimentSetLoggingMetadata', __ESM[0], __ESM[1])
+    BackendData = BaseNameDataType('BCK', 'BackendData', __EIS[0], __EIS[1])
+    MiscMetadata = BaseNameDataType('MIM', 'MiscMetadata', __EIS[0], __EIS[1])
+    ExperimentSetSpecificationMetadata = BaseNameDataType('ESM', 'ExperimentSetSpecificationMetadata', __EIS[0], __EIS[1])
+
+
+    CostHamiltonianMetadata = BaseNameDataType('CHM', 'CostHamiltonianMetadata', __EIS[0], __EIS[1])
+    PhaseHamiltonianMetadata = BaseNameDataType('PHM', 'PhaseHamiltonianMetadata', __EIS[0], __EIS[1])
+    QAOAOptimizationMetadata = BaseNameDataType('QOM', 'QAOAOptimizationMetadata', __EIS[0], __EIS[1])
+
 
     HamiltonianTransformations = BaseNameDataType('HT', 'HamiltonianTransformations', __EIS[0], __EIS[1])
     QuantumCircuits = BaseNameDataType('QC', 'QuantumCircuits', __EIS[0], __EIS[1])
     CircuitsMetadata = BaseNameDataType('CIM', 'CircuitsMetadata', __EIS[0], __EIS[1])
-
 
 
 
@@ -607,7 +631,49 @@ class _StandardNamesDataTypes(StandardNamesBaseDataTypes):
     DataType = BaseNameDataType('DAT', 'DataType', __DI[0], __DI[1])
 
 
-STANDARD_NAMES_DATA_TYPES: Final[_StandardNamesDataTypes] = _StandardNamesDataTypes()
+STANDARD_NAMES_DATA_TYPES: _StandardNamesDataTypes = _StandardNamesDataTypes()
+
+
+@dataclass(frozen=True)
+class _StandardNamesDataTypesExperimentSets(_StandardNamesDataTypes):
+    """Experiment set level versions of standard data types.
+    
+    This class automatically converts all metadata-category data types to use 
+    experiment set metadata categories instead of instance metadata.
+    Only affects data types where data_category == 'Metadata'.
+    """
+    
+    def __post_init__(self):
+        """Override metadata types to use ExperimentSetMetadata subcategory."""
+        super().__post_init__()
+        
+        # Get the target subcategory for experiment set metadata
+        esm_category = DATA_SUBCATEGORIES.ExperimentSetMetadata.data_category
+        esm_subcategory = DATA_SUBCATEGORIES.ExperimentSetMetadata.data_subcategory
+        metadata_category = DATA_CATEGORIES.Metadata.data_category
+        
+        # Override only metadata types
+        for attr_name in dir(self):
+            if not attr_name.startswith('_') and not callable(getattr(self, attr_name, None)):
+                try:
+                    attr = getattr(self, attr_name)
+                    if isinstance(attr, BaseNameDataType):
+                        # Only override if it's a metadata type
+                        if attr.data_category == metadata_category:
+                            # Create new BaseNameDataType with experiment set metadata
+                            new_attr = BaseNameDataType(
+                                id=attr.id,
+                                id_long=attr.id_long,
+                                data_category=esm_category,
+                                data_subcategory=esm_subcategory,
+                                value_format=attr.value_format
+                            )
+                            object.__setattr__(self, attr_name, new_attr)
+                except (AttributeError, TypeError):
+                    continue
+
+
+STANDARD_NAMES_DATA_TYPES_EXPERIMENT_SETS: _StandardNamesDataTypesExperimentSets = _StandardNamesDataTypesExperimentSets()
 
 
 @dataclass(frozen=True)
@@ -728,7 +794,7 @@ class _StandardNamesGeneralVariables(StandardNamesBaseVariables):
     # TestFake2 = BaseName('RFS','ReplicaIndex', float)
 
 
-STANDARD_NAMES_VARIABLES: Final[_StandardNamesGeneralVariables] = _StandardNamesGeneralVariables()
+STANDARD_NAMES_VARIABLES: _StandardNamesGeneralVariables = _StandardNamesGeneralVariables()
 
 ALL_IDS_VARIABLES_LONG = [x.id_long for x in STANDARD_NAMES_VARIABLES.get_all_attributes().values()]
 ALL_IDS_VARIABLES_SHORT = [x.id for x in STANDARD_NAMES_VARIABLES.get_all_attributes().values()]
@@ -776,7 +842,7 @@ class _StandardNamesHamiltonianModels(StandardNamesBaseVariables):
     LABS = BaseName("LAB", "LowAutocorrelationBinarySequences")
 
 
-HAMILTONIAN_MODELS = _StandardNamesHamiltonianModels()
+HamiltonianModels = _StandardNamesHamiltonianModels()
 
 
 @dataclass(frozen=True)
@@ -816,6 +882,7 @@ class _StandardNamesHamiltonianDescriptions(StandardNamesBaseVariables):
 STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS = _StandardNamesHamiltonianDescriptions()
 
 
+@dataclass(frozen=True)
 class _StandardNamesCoefficientsType(StandardNamesBaseVariables):
     CONTINUOUS = BaseName("CON", "Continuous", str)
     DISCRETE = BaseName("DIS", "Discrete", str)
@@ -824,9 +891,10 @@ class _StandardNamesCoefficientsType(StandardNamesBaseVariables):
     CONSTANT = BaseName("FIX", "Fixed", str)
 
 
-COEFFICIENTS_TYPE = _StandardNamesCoefficientsType()
+CoefficientsType = _StandardNamesCoefficientsType()
 
 
+@dataclass(frozen=True)
 class _StandardNamesCoefficientsDistribution(StandardNamesBaseVariables):
     Normal = BaseName("NOR", "Normal", str)
     Uniform = BaseName("UNI", "Uniform", str)
@@ -834,10 +902,12 @@ class _StandardNamesCoefficientsDistribution(StandardNamesBaseVariables):
     Custom = BaseName("CUS", "Custom", str)
 
 
-COEFFICIENTS_DISTRIBUTION = _StandardNamesCoefficientsDistribution()
+CoefficientsDistribution = _StandardNamesCoefficientsDistribution()
 
+if __name__ == '__main__':
+    print('type check:', CoefficientsType.DISCRETE in [CoefficientsType.DISCRETE])
 
-@dataclass(frozen=True)
+@dataclass
 class CoefficientsDistributionSpecifier(StandardizedSpecifier):
     CoefficientsType: BaseName
     CoefficientsDistributionName: BaseName
@@ -846,29 +916,29 @@ class CoefficientsDistributionSpecifier(StandardizedSpecifier):
     def __post_init__(self):
         """Set default properties based on type and distribution if none provided."""
         if self.CoefficientsDistributionProperties is None:
-            if self.CoefficientsType == COEFFICIENTS_TYPE.CONSTANT:
+            if self.CoefficientsType == CoefficientsType.CONSTANT:
                 raise ValueError("Constant coefficients must have 'value' property specified")
-            elif self.CoefficientsType in [COEFFICIENTS_TYPE.CONTINUOUS]:
-                if self.CoefficientsDistributionName in [COEFFICIENTS_DISTRIBUTION.Uniform]:
+            elif self.CoefficientsType in [CoefficientsType.CONTINUOUS]:
+                if self.CoefficientsDistributionName in [CoefficientsDistribution.Uniform]:
                     default_props = {'low': -1, 'high': 1}
-                elif self.CoefficientsDistributionName in [COEFFICIENTS_DISTRIBUTION.Normal]:
+                elif self.CoefficientsDistributionName in [CoefficientsDistribution.Normal]:
                     default_props = {'loc': 0, 'scale': 1}
                 else:
                     default_props = {}
-                object.__setattr__(self, 'CoefficientsDistributionProperties', default_props)
-            elif self.CoefficientsType in [COEFFICIENTS_TYPE.DISCRETE]:
-                if self.CoefficientsDistributionName in [COEFFICIENTS_DISTRIBUTION.Uniform]:
+                self.CoefficientsDistributionProperties = default_props
+            elif self.CoefficientsType in [CoefficientsType.DISCRETE]:
+                if self.CoefficientsDistributionName in [CoefficientsDistribution.Uniform]:
                     default_props = {'values': [-1, 1]}
-                elif self.CoefficientsDistributionName in [COEFFICIENTS_DISTRIBUTION.Normal]:
+                elif self.CoefficientsDistributionName in [CoefficientsDistribution.Normal]:
                     default_props = {'loc': 0, 'scale': 1}
                 else:
                     default_props = {}
-                object.__setattr__(self, 'CoefficientsDistributionProperties', default_props)
+                self.CoefficientsDistributionProperties = default_props
 
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierGeneral(StandardizedSpecifier):
     NumberOfQubits: int
     HamiltonianInstanceIndex: int
@@ -877,31 +947,30 @@ class HamiltonianInstanceSpecifierGeneral(StandardizedSpecifier):
         return self._get_description_string_general()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierErdosRenyi(HamiltonianInstanceSpecifierGeneral):
     EdgeProbabilityOrAmount: Union[int, float]
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierRegular(HamiltonianInstanceSpecifierGeneral):
     AverageDegree: float
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierMAXkSAT(HamiltonianInstanceSpecifierGeneral):
     ClauseDensity: float
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierLABS(HamiltonianInstanceSpecifierGeneral):
     def __post_init__(self):
         # LABS always has instance index 0
         super().__post_init__()
-        object.__setattr__(self, 'HamiltonianInstanceIndex', 0)
+        self.HamiltonianInstanceIndex = 0
 
 
-
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianInstanceSpecifierWishartPlantedEnsemble(HamiltonianInstanceSpecifierGeneral):
     WishartDensity: float
 
@@ -910,7 +979,7 @@ HamiltonianInstanceSpecifierMaxCut = HamiltonianInstanceSpecifierErdosRenyi
 HamiltonianInstanceSpecifierSK = HamiltonianInstanceSpecifierGeneral
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierGeneral(StandardizedSpecifier):
     HamiltonianModelName: BaseName
     Localities: Tuple[int, ...]
@@ -924,17 +993,17 @@ class HamiltonianClassSpecifierGeneral(StandardizedSpecifier):
         """Validate localities are positive."""
         assert np.all(np.array(self.Localities) > 0), "Locality must be positive."
         # Convert to tuple to ensure immutability
-        object.__setattr__(self, 'Localities', tuple(self.Localities))
+        self.Localities = tuple(self.Localities)
         super().__post_init__()
 
     def get_description_string(self, long_strings=False):
         return self._get_description_string_general(long_strings=long_strings)
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierErdosRenyi(HamiltonianClassSpecifierGeneral):
     # Class-level attribute override
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.ErdosRenyi, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.ErdosRenyi, init=False)
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierErdosRenyi,
                                                                init=False)
 
@@ -948,23 +1017,23 @@ class HamiltonianClassSpecifierErdosRenyi(HamiltonianClassSpecifierGeneral):
         # Set default values if not provided
         if self.CoefficientsDistributionSpecifier is None:
             default_coeffs = CoefficientsDistributionSpecifier(
-                CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+                CoefficientsType=CoefficientsType.DISCRETE,
+                CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                 CoefficientsDistributionProperties={'values': [-1, 1]})
-            object.__setattr__(self, 'CoefficientsDistributionSpecifier', default_coeffs)
+            self.CoefficientsDistributionSpecifier = default_coeffs
 
         # Set class-specific attributes
         if self.ClassSpecificAttributes is None:
             class_specific_attributes = {STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS.ErdosRenyiType.id: self.ErdosRenyiType}
-            object.__setattr__(self, 'ClassSpecificAttributes', class_specific_attributes)
+            self.ClassSpecificAttributes = class_specific_attributes
 
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierMaxCut(HamiltonianClassSpecifierErdosRenyi):
     # Fixed values - not user-settable
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.MaxCut, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.MaxCut, init=False)
     Localities: Tuple[int, ...] = field(default=(2,), init=False)  # MaxCut is 2-local
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierMaxCut, init=False)
 
@@ -972,18 +1041,18 @@ class HamiltonianClassSpecifierMaxCut(HamiltonianClassSpecifierErdosRenyi):
         # Set default coefficients if not provided
         if self.CoefficientsDistributionSpecifier is None:
             default_coeffs = CoefficientsDistributionSpecifier(
-                CoefficientsType=COEFFICIENTS_TYPE.CONSTANT,
-                CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Constant,
+                CoefficientsType=CoefficientsType.CONSTANT,
+                CoefficientsDistributionName=CoefficientsDistribution.Constant,
                 CoefficientsDistributionProperties={'value': 1})
-            object.__setattr__(self, 'CoefficientsDistributionSpecifier', default_coeffs)
+            self.CoefficientsDistributionSpecifier = default_coeffs
 
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierSK(HamiltonianClassSpecifierGeneral):
     # Class-level attribute override
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.SherringtonKirkpatrick, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.SherringtonKirkpatrick, init=False)
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierSK, init=False)
 
     def __post_init__(self):
@@ -993,10 +1062,10 @@ class HamiltonianClassSpecifierSK(HamiltonianClassSpecifierGeneral):
         # Set default coefficients if not provided
         if self.CoefficientsDistributionSpecifier is None:
             default_coeffs = CoefficientsDistributionSpecifier(
-                CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+                CoefficientsType=CoefficientsType.DISCRETE,
+                CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                 CoefficientsDistributionProperties={'values': [-1, 1]})
-            object.__setattr__(self, 'CoefficientsDistributionSpecifier', default_coeffs)
+            self.CoefficientsDistributionSpecifier = default_coeffs
 
         # Validate symmetric coefficients for SK model
         distribution_properties = self.CoefficientsDistributionSpecifier.CoefficientsDistributionProperties
@@ -1017,11 +1086,11 @@ class HamiltonianClassSpecifierSK(HamiltonianClassSpecifierGeneral):
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierRegular(HamiltonianClassSpecifierGeneral):
     # Fixed values - not user-settable
     Localities: Tuple[int, ...] = field(default=(2,), init=True)  # Regular graphs are 2-local
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.RegularGraph, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.RegularGraph, init=False)
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierRegular, init=False)
 
     def __post_init__(self):
@@ -1031,18 +1100,18 @@ class HamiltonianClassSpecifierRegular(HamiltonianClassSpecifierGeneral):
         # Set default coefficients if not provided
         if self.CoefficientsDistributionSpecifier is None:
             default_coeffs = CoefficientsDistributionSpecifier(
-                CoefficientsType=COEFFICIENTS_TYPE.CONSTANT,
-                CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Constant,
+                CoefficientsType=CoefficientsType.CONSTANT,
+                CoefficientsDistributionName=CoefficientsDistribution.Constant,
                 CoefficientsDistributionProperties={'value': 1})
-            object.__setattr__(self, 'CoefficientsDistributionSpecifier', default_coeffs)
+            self.CoefficientsDistributionSpecifier = default_coeffs
 
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierMAXkSAT(HamiltonianClassSpecifierGeneral):
     # Computed from class-specific fields - not user-settable
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.MAXkSAT, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.MAXkSAT, init=False)
     Localities: Tuple[int, ...] = field(default=None, init=False)  # Computed from kSAT
     ClassSpecificAttributes: Optional[Dict[str, Any]] = field(default=None, init=False)  # Computed from kSAT
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierMAXkSAT, init=False)
@@ -1058,42 +1127,38 @@ class HamiltonianClassSpecifierMAXkSAT(HamiltonianClassSpecifierGeneral):
 
         # Set localities based on kSAT
         localities = tuple(range(1, self.kSAT + 1))
-        object.__setattr__(self, 'Localities', localities)
+        self.Localities = localities
 
         # Set class-specific attributes
         if self.ClassSpecificAttributes is None:
             class_specific_attributes = {STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS.kSAT.id: self.kSAT}
-            object.__setattr__(self, 'ClassSpecificAttributes', class_specific_attributes)
+            self.ClassSpecificAttributes = class_specific_attributes
 
         super().__post_init__()
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierWishartPlantedEnsemble(HamiltonianClassSpecifierGeneral):
     # Fixed values - not user-settable
     Localities: Tuple[int, ...] = field(default=(2,), init=False)  # Wishart is 2-local
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.WishartPlantedEnsemble, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.WishartPlantedEnsemble, init=False)
     instance_specifier_constructor: ClassVar[Callable] = field(
         default=HamiltonianInstanceSpecifierWishartPlantedEnsemble, init=False)
 
 
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianClassSpecifierLABS(HamiltonianClassSpecifierGeneral):
     # Fixed values - not user-settable
     Localities: Tuple[int, ...] = field(default=(2, 4), init=False)  # LABS has 2-local and 4-local terms
-    HamiltonianModelName: BaseName = field(default=HAMILTONIAN_MODELS.LABS, init=False)
+    HamiltonianModelName: BaseName = field(default=HamiltonianModels.LABS, init=False)
 
     # Class-level attribute override
     instance_specifier_constructor: ClassVar[Callable] = field(default=HamiltonianInstanceSpecifierLABS, init=False)
 
 
-
-
-
-
 if __name__ == '__main__':
-    example_coefficients_distribution = CoefficientsDistributionSpecifier(CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                                                                          CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+    example_coefficients_distribution = CoefficientsDistributionSpecifier(CoefficientsType=CoefficientsType.DISCRETE,
+                                                                          CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                                                                           CoefficientsDistributionProperties={
                                                                               'values': [-1, 1]})
     example_class_specifier = HamiltonianClassSpecifierErdosRenyi(
@@ -1110,9 +1175,7 @@ if __name__ == '__main__':
 ##########################################
 
 
-
-
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianOptimizationSpecifier(StandardizedSpecifier):
     NumberOfQubits: int = field(init=False)
     HamiltonianInstanceIndex: int = field(init=False)
@@ -1123,9 +1186,9 @@ class HamiltonianOptimizationSpecifier(StandardizedSpecifier):
         # Extract computed fields from the input specifiers
         number_of_qubits = self.CostHamiltonianInstance.NumberOfQubits
         hamiltonian_instance_cost = self.CostHamiltonianInstance.HamiltonianInstanceIndex
-        object.__setattr__(self, 'NumberOfQubits', number_of_qubits)
-        object.__setattr__(self, 'HamiltonianInstanceIndex', hamiltonian_instance_cost)
-    
+        self.NumberOfQubits = number_of_qubits
+        self.HamiltonianInstanceIndex = hamiltonian_instance_cost
+
         super().__post_init__()
 
     def _get_dataframe_annotation(self,

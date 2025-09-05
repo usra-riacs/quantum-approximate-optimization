@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 from typing import Tuple, Optional, List
@@ -31,9 +31,12 @@ class NativeGateBuilderHeronCustomizable(AbstractProgramGateBuilder):
 
 
         if use_fractional_gates:
-            native_gate_set = ['CZ', 'ID', 'RZ', 'SX', 'X', 'RX', 'RZZ']
+            native_gate_set = ['CZ', 'ID', 'RZ', 'SX',
+                               #'X',
+                               'RX', 'RZZ']
         else:
-            native_gate_set = ['CZ', 'ID', 'RZ', 'SX', 'X']
+            native_gate_set = ['CZ', 'ID', 'RZ', 'SX',# 'X'
+                               ]
 
         super().__init__(sdk_name='qiskit',
                          native_gate_set=native_gate_set)
@@ -138,7 +141,8 @@ class NativeGateBuilderHeronCustomizable(AbstractProgramGateBuilder):
     def _X(self) -> QuantumCircuit:
         circuit = QuantumCircuit(1, 1)
         # this decomposition is the same for fractional and non-fractional gates
-        circuit.x(qubit=0)
+        circuit.sx(qubit=0)
+        circuit.sx(qubit=0)
 
         circuit = self._maybe_add_random_delay(circuit=circuit,
                                                qubits=[0])

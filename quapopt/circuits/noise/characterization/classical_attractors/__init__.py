@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import copy
 from enum import Enum
@@ -103,35 +103,35 @@ class MirrorCircuitSpecification:
             else:
                 raise NotImplementedError("This mirror circuit type is not implemented yet.")
 
-            specifier = AnsatzSpecifier(phase_hamiltonian_class_specifier=hamiltonian_class_spec,
-                                        phase_hamiltonian_instance_specifier=hamiltonian_instance_spec,
-                                        depth=depth,
-                                        time_block_size=time_block_size,
-                                        phase_separator_type=phase_separator_type,
-                                        mixer_type=mixer_type,
-                                        qubit_mapping_type=qubit_mapping_type)
+            specifier = AnsatzSpecifier(PhaseHamiltonianClass=hamiltonian_class_spec,
+                                        PhaseHamiltonianInstance=hamiltonian_instance_spec,
+                                        Depth=depth,
+                                        TimeBlockSize=time_block_size,
+                                        PhaseSeparatorType=phase_separator_type,
+                                        MixerType=mixer_type,
+                                        QubitMappingType=qubit_mapping_type)
 
             return specifier.get_description_string()
         else:
             raise ValueError(f"Unsupported mirror circuit type: {circuit_type}")
 
 
-def get_CAF_standardized_folder_hierarchy(backend_name: str,
-                                         simulated: bool,
-                                         use_fractional_gates: bool,
-                                         enable_DD: bool,
-                                         enable_twirled_gates: bool,
-                                         enable_twirled_measurements: bool,
-                                         enable_active_reset: bool,
-                                         number_of_qubits: int,
-                                         mirror_circuit_type: Optional[MirrorCircuitType] = None,
-                                         replace_rz_with_barriers: Optional[bool] = None,
-                                         optimization_level: Optional[int] = None,
-                                         routing_method: Optional[str] = None,
-                                         delay_schedule_type: Optional[DelayScheduleType] = None,
-                                         add_barriers_to_layers:Optional[bool]=None,
-                                          optimized_parametrs: Optional[bool] = None,
-                                          ) -> List[str]:
+def get_CAF_standardized_folder_hierarchy_depreciated(backend_name: str,
+                                                      simulated: bool,
+                                                      use_fractional_gates: bool,
+                                                      enable_DD: bool,
+                                                      enable_twirled_gates: bool,
+                                                      enable_twirled_measurements: bool,
+                                                      enable_active_reset: bool,
+                                                      number_of_qubits: int,
+                                                      mirror_circuit_type: Optional[MirrorCircuitType] = None,
+                                                      replace_rz_with_barriers: Optional[bool] = None,
+                                                      optimization_level: Optional[int] = None,
+                                                      routing_method: Optional[str] = None,
+                                                      delay_schedule_type: Optional[DelayScheduleType] = None,
+                                                      add_barriers_to_layers:Optional[bool]=None,
+                                                      optimized_parametrs: Optional[bool] = None,
+                                                      ) -> List[str]:
     if mirror_circuit_type is None:
         mirror_circuit_type = MirrorCircuitType.NONE
 
@@ -175,4 +175,4 @@ def get_CAF_standardized_folder_hierarchy(backend_name: str,
 
 def _standardized_table_name_CAF(delay_schedule_description: str,
                                 mirror_circuit_repeats: int, ):
-    return f'DelaySchedule={delay_schedule_description};Repeats={mirror_circuit_repeats}'
+    return f'{delay_schedule_description};REP={mirror_circuit_repeats}'

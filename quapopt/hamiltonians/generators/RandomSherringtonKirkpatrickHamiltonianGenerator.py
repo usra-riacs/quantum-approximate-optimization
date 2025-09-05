@@ -52,16 +52,16 @@ class RandomSKHamiltonianGenerator(RandomClassicalHamiltonianGeneratorBase):
 
 if __name__ == '__main__':
     # Example of usage
-    from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                     COEFFICIENTS_DISTRIBUTION,
+    from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                     CoefficientsDistribution,
                                                      CoefficientsDistributionSpecifier,
                                                      HamiltonianClassSpecifierGeneral,
-                                                     HAMILTONIAN_MODELS)
+                                                     HamiltonianModels)
 
 
 
-    cdp = CoefficientsDistributionSpecifier(CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                                            CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+    cdp = CoefficientsDistributionSpecifier(CoefficientsType=CoefficientsType.DISCRETE,
+                                            CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                                             CoefficientsDistributionProperties={'low': -10, 'high': 10, 'step':1})
 
     RSKHG = RandomSKHamiltonianGenerator(coefficients_distribution_specifier=cdp,

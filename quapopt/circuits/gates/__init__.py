@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from typing import Union, List, Tuple, Dict, Optional, Callable, Any
 
@@ -17,6 +17,7 @@ try:
 
     _SUPPORTED_SDKs.append('cirq')
 except (ImportError, ModuleNotFoundError):
+    cirq = None
     CircuitCirq = None
 try:
     import qiskit
@@ -32,6 +33,8 @@ try:
 
 
 except (ImportError, ModuleNotFoundError):
+
+    qiskit = None
     AngleQiskit = None
     CircuitQiskit = None
     PassManagerQiskit = None
@@ -47,6 +50,7 @@ except (ImportError, ModuleNotFoundError):
     AnglePyquil = None
 
     CircuitPyquil = None
+    pyquil = None
 
 if len(_SUPPORTED_SDKs) == 0:
     raise NotImplementedError("No supported SDKs found. "
@@ -163,12 +167,18 @@ def add_measurements_pyquil(quantum_circuit: CircuitPyquil,
 
 def add_measurements_qiskit(quantum_circuit: CircuitQiskit,
                             qubit_indices: Tuple[int],
-                            classical_indices: Tuple[int] = None) -> CircuitQiskit:
+                            classical_indices: Tuple[int] = None,
+                            reverse_indices:bool=False) -> CircuitQiskit:
 
     number_of_qubits = len(qubit_indices)
     if classical_indices is None:
         classical_indices = list(range(number_of_qubits))
-    for classical_index, logical_index in zip(classical_indices, qubit_indices[::-1]):
+
+    qubit_indices = list(qubit_indices)
+    if reverse_indices:
+        qubit_indices.reverse()
+
+    for classical_index, logical_index in zip(classical_indices, qubit_indices):
         quantum_circuit.measure(qubit=logical_index, cbit=classical_index)
 
     return quantum_circuit
@@ -331,11 +341,13 @@ class AbstractProgramGateBuilder:
                          quantum_circuit: AbstractCircuit,
                          qubit_indices: Tuple[int, ...],
                          classical_indices: Tuple[int, ...] = None,
-                         quantum_register=None):
+                         quantum_register=None,
+                         reverse_indices:bool=False):
 
         kwargs = {"quantum_circuit": quantum_circuit,
                   "qubit_indices": qubit_indices,
-                  "classical_indices": classical_indices}
+                  "classical_indices": classical_indices,
+                  'reverse_indices':reverse_indices}
         if self.sdk_name in ['cirq']:
             kwargs['quantum_register'] = quantum_register
 
@@ -592,6 +604,20 @@ class AbstractProgramGateBuilder:
                                            angles_tuple=angles_tuple,
                                            other_kwargs_tuple=other_kwargs_tuple)
 
+
+    def exp_ZZZZ(self,
+               quantum_circuit: AbstractCircuit,
+               angles_tuple: Tuple[Tuple[AbstractAngle], ...],
+               qubits_quadruples_tuple: Tuple[Tuple[int, int], ...],
+               other_kwargs_tuple:Optional[Tuple[Dict[str, Any], ...]]=None) -> AbstractCircuit:
+        """Return an exponentiated ZZ operator cycle."""
+
+        return self.compose_multiple_gates(gate_builder=self._exp_ZZZZ,
+                                           quantum_circuit=quantum_circuit,
+                                           targets_tuple=qubits_quadruples_tuple,
+                                           angles_tuple=angles_tuple,
+                                           other_kwargs_tuple=other_kwargs_tuple)
+
     def XX(self,
            quantum_circuit: AbstractCircuit,
            qubits_pairs_tuple: Tuple[Tuple[int, int], ...],
@@ -825,6 +851,7 @@ class AbstractProgramGateBuilder:
         raise NotImplementedError(
             f"{self.__class__.__name__} has not implemented _exp_ZZ().")
 
+
     def _exp_ZZ_SWAP(self,
                      *arguments) -> AbstractCircuit:
         raise NotImplementedError(
@@ -885,14 +912,9 @@ class AbstractProgramGateBuilder:
             *arguments) -> AbstractCircuit:
         pass
 
-
-
-
-
-
-
-
-
+    def _exp_ZZZZ(self,
+                *arguments) -> AbstractCircuit:
+        pass
 
             # def _u3(self,
     #         angles:Tuple[AbstractAngle,AbstractAngle,AbstractAngle],

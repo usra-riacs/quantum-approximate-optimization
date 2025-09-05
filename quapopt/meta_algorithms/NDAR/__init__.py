@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 from enum import Enum, unique
@@ -11,7 +11,7 @@ import pandas as pd
 
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_VARIABLES as SNV,
                                                  StandardizedSpecifier)
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import MAIN_KEY_VALUE_SEPARATOR
+from quapopt.data_analysis.data_handling.schemas.naming import MAIN_KEY_VALUE_SEPARATOR
 
 
 from quapopt.optimization import EnergyResultMain
@@ -64,7 +64,7 @@ class ConvergenceCriterionNames(Enum):
 from dataclasses import dataclass, field
 
 
-@dataclass(frozen=True)
+@dataclass
 class ConvergenceCriterion(StandardizedSpecifier):
     ConvergenceCriterion: ConvergenceCriterionNames = field(default=None, init=False)
     ConvergenceValue: Union[int, float] = field(default=None, init=False)
@@ -127,7 +127,7 @@ class ConvergenceCriterion(StandardizedSpecifier):
         return super().get_description_string(major_separator=False)
 
 
-@dataclass(frozen=True)
+@dataclass
 class AttractorModel(StandardizedSpecifier):
     NumberOfQubits: int = field(default=None, init=False)
     AttractorStateType: AttractorStateType = field(default=None, init=False)

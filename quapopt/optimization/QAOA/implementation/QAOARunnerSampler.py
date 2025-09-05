@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 from typing import List, Optional, Tuple, Dict, Any, Union
@@ -59,6 +59,7 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
         """
 
 
+
         super().__init__(hamiltonian_representations_cost=hamiltonian_representations_cost,
                          hamiltonian_representations_phase=hamiltonian_representations_phase,
                          store_full_information_in_history=store_full_information_in_history,
@@ -101,12 +102,13 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
                      qaoa_result: QAOAResult,
                      additional_annotations: Optional[Dict[str, Any]] = None) -> None:
 
+
         if self.results_logger is None or self.logging_level in [None, LoggingLevel.NONE]:
             return
 
 
         optimization_overview_df = qaoa_result.to_dataframe_main()
-        self.results_logger.write_results(dataframe=optimization_overview_df,
+        filepath = self.results_logger.write_results(dataframe=optimization_overview_df,
                                           data_type=SNDT.OptimizationOverview,
                                           additional_annotation_dict=additional_annotations)
 
@@ -146,9 +148,7 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
             raise ValueError('Infinite samples are not supported, please use QAOARunnerStatevector class.')
 
         if self._backends is None:
-
             _initialize_backend_kwargs = self._initialize_backend_kwargs.copy()
-
 
             if backend_name is None:
                 backend_name = _initialize_backend_kwargs.get('backend_name', None)

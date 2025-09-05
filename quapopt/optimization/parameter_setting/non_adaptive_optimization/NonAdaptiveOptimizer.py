@@ -6,7 +6,7 @@ from typing import List, Tuple, Any
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from quapopt.optimization import OptimizationResult
 from quapopt.optimization.parameter_setting import ParametersBoundType

@@ -8,7 +8,7 @@ import copy
 import numpy as np
 import pandas as pd
 import time
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 from multiprocessing import Pool
 
@@ -327,7 +327,7 @@ def query_yes_no(question:str)->bool:
         return query_yes_no(question)
 
 def wait_unless_interrupted(wait_time: float,
-                            progress_bar_in_notebook:bool=False):
+                            progress_bar_in_notebook:bool=True):
     if progress_bar_in_notebook:
         _tqdm = tqdm_notebook
     else:

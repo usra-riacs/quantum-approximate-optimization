@@ -1,8 +1,8 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 from typing import Union, List, Tuple
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import numpy as np
 
 try:
@@ -114,7 +114,8 @@ if __name__ == '__main__':
     # TODO(FBM): should add proper tests
     import itertools
     import numpy as np
-    from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+    from quapopt import ancillary_functions as anf
+
 
     noq_test = 12
 

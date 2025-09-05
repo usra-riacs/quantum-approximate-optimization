@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 from quapopt.data_analysis.data_handling import (
@@ -35,12 +35,12 @@ class RandomMaxCutHamiltonianGenerator(RandomErdosRenyiHamiltonianGenerator):
 
 if __name__ == '__main__':
     # Example of usage
-    from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                     COEFFICIENTS_DISTRIBUTION,
+    from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                     CoefficientsDistribution,
                                                      CoefficientsDistributionSpecifier)
 
-    cdp = CoefficientsDistributionSpecifier(CoefficientsType=COEFFICIENTS_TYPE.DISCRETE,
-                                            CoefficientsDistributionName=COEFFICIENTS_DISTRIBUTION.Uniform,
+    cdp = CoefficientsDistributionSpecifier(CoefficientsType=CoefficientsType.DISCRETE,
+                                            CoefficientsDistributionName=CoefficientsDistribution.Uniform,
                                             CoefficientsDistributionProperties={'low': -10, 'high': 10, 'step': 1})
 
     RSKHG = RandomSKHamiltonianGenerator(coefficients_distribution_specifier=cdp,

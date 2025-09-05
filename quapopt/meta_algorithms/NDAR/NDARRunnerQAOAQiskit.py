@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import time
 import pandas as pd
@@ -14,6 +14,7 @@ from quapopt.circuits.gates.gate_delays import DelaySchedulerBase
 from quapopt.optimization.QAOA import (PhaseSeparatorType,
                                        MixerType,
                                        QubitMappingType)
+from quapopt.data_analysis.data_handling import ResultsLogger
 
 # Lazy monkey-patching of cupy
 try:
@@ -35,7 +36,6 @@ from quapopt.meta_algorithms.NDAR import (AttractorModel,
                                           NDARIterationResult)
 from quapopt.meta_algorithms.NDAR.NDARRunner import NDARRunner
 from quapopt.optimization import EnergyResultMain
-from quapopt.optimization.QAOA import QAOAResultsLogger
 from quapopt.optimization.QAOA.implementation.QAOARunnerSampler import QAOARunnerSampler
 
 from quapopt.optimization.parameter_setting import OptimizerType
@@ -45,7 +45,8 @@ from quapopt.optimization import BestResultsContainer
 from quapopt.optimization.parameter_setting.non_adaptive_optimization.NonAdaptiveOptimizer import NonAdaptiveOptimizer
 from quapopt.optimization.parameter_setting.variational.scipy_tools.ScipyOptimizerWrapped import ScipyOptimizerWrapped
 from optuna.samplers import BaseSampler as BaseSamplerOptuna
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 
 class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
     def __init__(self,
@@ -53,11 +54,12 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
                  # Qiskit-specific configuration
                  qiskit_pass_manager: StagedPassManager,
                  qiskit_backend,
+                 simulation,
                  program_gate_builder: AbstractProgramGateBuilder = None,
                  number_of_qubits_device_qiskit: Optional[int] = None,
                  qubit_indices_physical: tuple = None,
                  classical_indices=None,
-                 enforce_no_ancilla_qubits: bool = True,
+                # enforce_no_ancilla_qubits: bool = True,
                  # QAOA circuit configuration
                  qaoa_depth: int = 1,
                  time_block_size=None,
@@ -67,7 +69,6 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
                  every_gate_has_its_own_parameter: bool = False,
                  add_barriers: bool = False,
                  # Session management
-                 simulation: bool = True,
                  qiskit_sampler_options: Optional[dict] = None,
                  mock_context_manager_if_simulated: bool = True,
                  session_ibm=None,
@@ -127,25 +128,25 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
 
             # Store Qiskit configuration for creating initializing qiskit backend in QAOARunnerSampler instances
         self._qiskit_config = {
-            'qiskit_pass_manager': qiskit_pass_manager,
-            'qiskit_backend': qiskit_backend,
-            'program_gate_builder': program_gate_builder,
-            'number_of_qubits_device_qiskit': number_of_qubits_device_qiskit,
-            'qubit_indices_physical': qubit_indices_physical,
-            'classical_indices': classical_indices,
-            'enforce_no_ancilla_qubits': enforce_no_ancilla_qubits,
-            'qaoa_depth': qaoa_depth,
-            'time_block_size': time_block_size,
-            'qubit_mapping_type': qubit_mapping_type,
-            'phase_separator_type': phase_separator_type,
-            'mixer_type': mixer_type,
-            'every_gate_has_its_own_parameter': every_gate_has_its_own_parameter,
-            'add_barriers': add_barriers,
-            'simulation': simulation,
-            'qiskit_sampler_options': qiskit_sampler_options,
-            'session_ibm': self._current_session,
-            'delay_scheduler': delay_scheduler
-        }
+                                'qiskit_pass_manager': qiskit_pass_manager,
+                                'qiskit_backend': qiskit_backend,
+                                'program_gate_builder': program_gate_builder,
+                                'number_of_qubits_device_qiskit': number_of_qubits_device_qiskit,
+                                'qubit_indices_physical': qubit_indices_physical,
+                                'classical_indices': classical_indices,
+                               # 'enforce_no_ancilla_qubits': enforce_no_ancilla_qubits,
+                                'qaoa_depth': qaoa_depth,
+                                'time_block_size': time_block_size,
+                                'qubit_mapping_type': qubit_mapping_type,
+                                'phase_separator_type': phase_separator_type,
+                                'mixer_type': mixer_type,
+                                'every_gate_has_its_own_parameter': every_gate_has_its_own_parameter,
+                                'add_barriers': add_barriers,
+                                'simulation': simulation,
+                                'qiskit_sampler_options': qiskit_sampler_options,
+                                'session_ibm': self._current_session,
+                                'delay_scheduler': delay_scheduler
+                            }
 
         self._current_sampler = QAOARunnerSampler(hamiltonian_representations_cost=input_hamiltonian_representations,
                                                   logger_kwargs=self._logger_kwargs,
@@ -160,14 +161,14 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
         return self._current_sampler
 
     @property
-    def results_logger(self) -> Optional[QAOAResultsLogger]:
+    def results_logger(self) -> Optional[ResultsLogger]:
         """Get current QAOA results logger from the active QAOARunnerQiskit instance."""
         if self._current_sampler is not None:
             return self._current_sampler.results_logger
         return None
 
+
     def _get_updated_qaoa_logger_kwargs_for_iteration(self):
-        """Generate logger kwargs with NDAR iteration suffix."""
         base_kwargs = self._logger_kwargs
         if base_kwargs is None:
             base_kwargs = {}
@@ -177,13 +178,7 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
 
         base_suffix = base_kwargs['table_name_suffix']
         ndar_suffix = f"{SNV.NDARIteration.id}{MKVS}{self.ndar_iteration}"
-
-        # Create a simple concatenation with separator if both exist
-        if base_suffix:
-            updated_suffix = f"{base_suffix}_{ndar_suffix}"
-        else:
-            updated_suffix = ndar_suffix
-
+        updated_suffix = self.results_logger.join_table_name_parts([base_suffix, ndar_suffix])
         updated_kwargs = base_kwargs.copy()
         updated_kwargs['table_name_suffix'] = updated_suffix
 
@@ -196,11 +191,22 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
         if self._logging_level in [None, LoggingLevel.NONE]:
             return
 
+        base_kwargs = self._logger_kwargs
+        if base_kwargs is None:
+            base_kwargs = {}
+
+        if 'table_name_suffix' in base_kwargs:
+            table_name_suffix = base_kwargs['table_name_suffix']
+        else:
+            table_name_suffix = ''
+
         ndar_overview_df = ndar_result.to_dataframe_main()
-        ndar_overview_datatype = SNDT.NDAROverview
         self.results_logger.write_results(dataframe=ndar_overview_df,
-                                          data_type=ndar_overview_datatype,
-                                          additional_annotation_dict=additional_annotations)
+                                          data_type=SNDT.NDAROverview,
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_suffix=table_name_suffix,
+                                          # since it's overview of NDAR, we don't want iteration index in table name
+                                          )
 
     # TODO(FBM): fix signatures
     def sample_new_solutions(self,
@@ -233,7 +239,7 @@ class NDARRunnerQAOAQiskit(NDARRunner, QiskitSessionManagerMixin):
                              new_seed: Optional[int] = None,
 
                              ) -> List[Tuple[float, Tuple[np.ndarray, int, QAOAResult]]]:
-        # TODO(FBM): this is a mess, refactor; also should probably inherit from NDARRunnerQAOA
+        # TODO(FBM): this is a mess, refactor; also should probably inherit from NDARRunnerQAOA; should be abstracted
 
         if hamiltonian_representations_cost[0].default_backend == 'cupy':
             import cupy as bck

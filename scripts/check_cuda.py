@@ -1,11 +1,12 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 AVAILABLE_SIMULATORS = []
 
 try:
     import cupy
+
     if cupy.cuda.is_available():
         AVAILABLE_SIMULATORS += ['cupy']
 except (ImportError, ModuleNotFoundError):
@@ -13,6 +14,7 @@ except (ImportError, ModuleNotFoundError):
 
 try:
     import numba.cuda
+
     if numba.cuda.is_available():
         AVAILABLE_SIMULATORS += ['cuda']
 except (ImportError, ModuleNotFoundError):
@@ -20,11 +22,11 @@ except (ImportError, ModuleNotFoundError):
 
 try:
     import torch
+
     if torch.cuda.is_available():
         AVAILABLE_SIMULATORS += ['torch']
-except( ImportError, ModuleNotFoundError):
+except(ImportError, ModuleNotFoundError):
     pass
-
 
 try:
     import numba, cupy, torch
@@ -36,7 +38,6 @@ try:
     if not numba.cuda.is_available() or not cupy.cuda.is_available():
         print("Warning: CUDA is not available. Some features may not work as expected.")
 except(Exception) as e:
-    print("Error importing numba or cupy or pytorch:", e)
+    print("Error importing numba or cupy or pytorch_implementation:", e)
 
 print("\nAvailable simulators:", AVAILABLE_SIMULATORS)
-

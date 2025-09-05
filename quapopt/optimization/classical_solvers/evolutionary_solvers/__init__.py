@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import time
 
@@ -29,6 +29,7 @@ def _solve_ising_hamiltonian_pygad(hamiltonian: ClassicalHamiltonian,
                                    ):
     t0 = time.perf_counter()
     num_genes = hamiltonian.number_of_qubits
+
 
     if initial_population is not None:
         if isinstance(initial_population, np.ndarray):
@@ -68,11 +69,14 @@ def _solve_ising_hamiltonian_pygad(hamiltonian: ClassicalHamiltonian,
         save_best_solutions=save_best_solutions,
         suppress_warnings=True,
         random_seed=random_seed,
+        gene_space=[0,1]
 
     )
     ga_instance.run()
 
     solution, solution_fitness, solution_idx = ga_instance.best_solution()
+
+
     best_energy = float(hamiltonian.evaluate_energy([solution])[0])
     best_state = tuple(solution)
 

@@ -2,21 +2,88 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 
+from functools import partial
 from typing import Optional
 
 from pydantic import conint
-import numpy as np
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
 from quapopt.circuits.gates import AbstractProgramGateBuilder
-from quapopt.circuits.gates import _SUPPORTED_SDKs
+from quapopt.circuits.gates import _SUPPORTED_SDKs, pyquil, qiskit, cirq, AbstractCircuit
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
-from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit
+from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit, build_fractional_time_block_ansatz_qiskit
 
 
 class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
-    """Build a parameterized quantum approximate optimization circuit for any optimization problem."""
+    """
+    QAOA ansatz circuit optimized for fully-connected qubit topologies.
+    
+    This class constructs parameterized Quantum Approximate Optimization Algorithm (QAOA)
+    circuits assuming all-to-all qubit connectivity. Unlike hardware-constrained circuits,
+    this implementation can directly apply two-qubit gates between any pair of qubits without
+    requiring routing or SWAP gates. It supports both standard QAOA and fractional time
+    blocking approaches.
+    
+    The circuit construction is multi-SDK compatible (Qiskit, PyQuil, Cirq) and provides
+    flexible control over circuit structure including phase separator types, mixer types,
+    and initial state preparation.
+    
+    :param sdk_name: Quantum SDK to use for circuit construction ('qiskit', 'pyquil', 'cirq')
+    :type sdk_name: str
+    :param depth: Number of QAOA layers (p parameter)
+    :type depth: int
+    :param hamiltonian_phase: Phase Hamiltonian defining the optimization problem
+    :type hamiltonian_phase: ClassicalHamiltonian
+    :param program_gate_builder: Gate builder for SDK-specific gate implementations
+    :type program_gate_builder: AbstractProgramGateBuilder
+    :param time_block_size: Fraction of Hamiltonian interactions per layer (0.0-1.0) or None for standard QAOA
+    :type time_block_size: float, optional
+    :param phase_separator_type: Type of phase separator gates (QAOA or QAMPA)
+    :type phase_separator_type: PhaseSeparatorType
+    :param mixer_type: Type of mixer gates (QAOA or QAMPA)
+    :type mixer_type: MixerType
+    :param every_gate_has_its_own_parameter: Whether each gate gets independent parameters (not yet supported)
+    :type every_gate_has_its_own_parameter: bool
+    :param qubit_indices_physical: Optional mapping to specific physical qubits
+    :type qubit_indices_physical: List[int], optional
+    :param add_barriers: Whether to add quantum barriers between layers (Qiskit only)
+    :type add_barriers: bool
+    :param initial_state: Initial quantum state ('|+>', '|0>', or AbstractCircuit)
+    :type initial_state: str or AbstractCircuit, optional
+    :param number_of_qubits_circuit: Override for total circuit qubits
+    :type number_of_qubits_circuit: int, optional
+    
+    Example:
+        >>> from quapopt.hamiltonians import ClassicalHamiltonian
+        >>> from quapopt.circuits.gates.logical import LogicalGateBuilderQiskit
+        >>> # Create MaxCut Hamiltonian
+        >>> ham = ClassicalHamiltonian([(1.0, (0, 1)), (1.0, (1, 2))], number_of_qubits=3)
+        >>> gate_builder = LogicalGateBuilderQiskit()
+        >>> # Build standard QAOA circuit
+        >>> circuit = FullyConnectedQAOACircuit(
+        ...     sdk_name='qiskit',
+        ...     depth=2,
+        ...     hamiltonian_phase=ham,
+        ...     program_gate_builder=gate_builder
+        ... )
+        >>> # Build fractional time-blocked circuit
+        >>> fractional_circuit = FullyConnectedQAOACircuit(
+        ...     sdk_name='qiskit',
+        ...     depth=1,
+        ...     hamiltonian_phase=ham,
+        ...     program_gate_builder=gate_builder,
+        ...     time_block_size=0.5
+        ... )
+    
+    .. note::
+        For fully-connected QAOA, `time_block_size` represents the fraction of 
+        Hamiltonian interactions included per layer, distinct from LinearSwapNetwork
+        where it specifies the number of linear chains.
+    
+    .. note::
+        When `time_block_size < 1.0`, the circuit automatically switches to fractional
+        time blocking mode, creating multiple sub-layers with subsets of interactions.
+    """
 
     def __init__(
             self,
@@ -24,14 +91,14 @@ class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
             depth: conint(ge=0),
             hamiltonian_phase: ClassicalHamiltonian,
             program_gate_builder: AbstractProgramGateBuilder,
-            time_block_size: Optional[conint(ge=0)] = None,
+            time_block_size: Optional[float] = None,
             phase_separator_type=PhaseSeparatorType.QAOA,
             mixer_type=MixerType.QAOA,
             every_gate_has_its_own_parameter: bool = False,
             qubit_indices_physical=None,
             add_barriers=False,
-            input_state: Optional[str] = None,
-            enforce_no_ancilla_qubits: bool = True,
+            initial_state: Optional[str] = None,
+            number_of_qubits_circuit:int=None
 
     ):
         """
@@ -51,135 +118,99 @@ class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
         :param every_gate_has_its_own_parameter:
         """
 
-
-
         assert sdk_name.lower() in _SUPPORTED_SDKs, (f"Unsupported SDK: {sdk_name}. "
                                                      f"Please choose one of the following: {_SUPPORTED_SDKs}")
-        if input_state is None:
-            input_state = '|+>'
+        if initial_state is None:
+            initial_state = '|+>'
 
         ansatz_specifier = AnsatzSpecifier(
-            phase_hamiltonian_class_specifier=hamiltonian_phase.hamiltonian_class_specifier,
-            phase_hamiltonian_instance_specifier=hamiltonian_phase.hamiltonian_instance_specifier,
-            depth=depth,
-            phase_separator_type=phase_separator_type,
-            mixer_type=mixer_type,
-            qubit_mapping_type=QubitMappingType.fully_connected,
-            time_block_size=time_block_size
+            PhaseHamiltonianClass=hamiltonian_phase.hamiltonian_class_specifier,
+            PhaseHamiltonianInstance=hamiltonian_phase.hamiltonian_instance_specifier,
+            Depth=depth,
+            PhaseSeparatorType=phase_separator_type,
+            MixerType=mixer_type,
+            QubitMappingType=QubitMappingType.fully_connected,
+            TimeBlockSize=time_block_size
         )
 
         number_of_qubits = hamiltonian_phase.number_of_qubits
 
         qubit_ids_device = qubit_indices_physical
 
-
-        hamiltonian_abstract_interaction_edges_all = [tup for tup in hamiltonian_phase.hamiltonian if len(tup[1])==2]
-        number_of_interactions = len(hamiltonian_abstract_interaction_edges_all)
-
-
-        #
         if qubit_ids_device is None:
             qubit_ids_device = tuple(range(number_of_qubits))
 
         logical_qubit_indices = tuple(range(number_of_qubits))
 
-        # We will need two types of indices. One is abstract qubit indexing so from 0 to n-1 for construction of SWAP network
-        # The other is device qubit indexing, which is the actual qubit indices on the device. We need to map between them
-
+        hamiltonian_abstract_interaction_edges_all = [tup for tup in hamiltonian_phase.hamiltonian if len(tup[1]) == 2]
         if time_block_size is None:
-            time_block_size = number_of_interactions
+            time_block_size = 1.0
 
-        if every_gate_has_its_own_parameter:
-            assert sdk_name.lower() in ['qiskit'], "Only Qiskit supports every gate has its own parameter"
-            assert time_block_size == number_of_interactions, ("Every gate has its own parameter "
-                                                         "only works for time_block_size = number_of_interactions")
-            assert set(hamiltonian_phase.localities) == {
-                2}, "Every gate has its own parameter only works for 2-local Hamiltonians"
-            assert depth == 1, "Every gate has its own parameter only works for depth = 1"
+        assert not every_gate_has_its_own_parameter, ("every_gate_has_its_own_parameter=True "
+                                                      "is not supported for FullyConnectedQAOACircuit yet")
 
-        param_name_phase = "AngPHS"
+        param_name_phase = "AngPS"
         param_name_mixer = "AngMIX"
 
         if sdk_name.lower() in ['qiskit']:
-            from qiskit import QuantumCircuit
-            from qiskit.circuit import ParameterVector
+            if qiskit is None:
+                raise ModuleNotFoundError("Qiskit is not installed. Please install Qiskit to use this feature.")
 
-            quantum_circuit = QuantumCircuit(number_of_qubits, number_of_qubits)
+            if number_of_qubits_circuit is None:
+                number_of_qubits_circuit = max([max(qubit_ids_device) + 1, number_of_qubits])
+
+            quantum_circuit = qiskit.QuantumCircuit(number_of_qubits_circuit, number_of_qubits)
 
             if not every_gate_has_its_own_parameter:
-                angle_phase = ParameterVector(name=param_name_phase, length=depth) if depth > 0 else None
-                angle_mixer = ParameterVector(name=param_name_mixer, length=depth) if depth > 0 else None
-            else:
-                # in that case, number of gates per layer is number of interactions in the Hamiltonian
-                number_of_phase_gates_per_layer = time_block_size
-                number_of_mixer_gates_per_layer = number_of_qubits
-                # number_of_gates = depth*number_of_gates_per_layer
-                angle_phase = ParameterVector(name=param_name_phase,
-                                               length=number_of_phase_gates_per_layer*depth) if depth > 0 else None
-                angle_mixer = ParameterVector(name=param_name_mixer, length=int(
-                    depth * number_of_mixer_gates_per_layer)) if depth > 0 else None
+                angle_phase = qiskit.circuit.ParameterVector(name=param_name_phase, length=depth) if depth > 0 else None
+                angle_mixer = qiskit.circuit.ParameterVector(name=param_name_mixer, length=depth) if depth > 0 else None
+
         elif sdk_name.lower() in ['pyquil']:
-            from pyquil import Program
-            quantum_circuit = Program()
+            if pyquil is None:
+                raise ModuleNotFoundError("PyQuil is not installed. Please install PyQuil to use this feature.")
+            quantum_circuit = pyquil.Program()
             angle_phase = quantum_circuit.declare(param_name_phase, "REAL", depth) if depth > 0 else None
             angle_mixer = quantum_circuit.declare(param_name_mixer, "REAL", depth) if depth > 0 else None
 
         elif sdk_name.lower() in ['cirq']:
+            if cirq is None:
+                raise ModuleNotFoundError("Cirq is not installed. Please install Cirq to use this feature.")
 
-            from cirq import Circuit
             import sympy
-            quantum_circuit = Circuit()
+            quantum_circuit = cirq.Circuit()
             angle_phase = [sympy.Symbol(name=f"{param_name_phase}-{i}") for i in range(depth)]
             angle_mixer = [sympy.Symbol(name=f"{param_name_mixer}-{i}") for i in range(depth)]
 
         else:
-            raise AssertionError((f"Unsupported SDK: {sdk_name}. "
-                                  f"Please choose one of the following: {_SUPPORTED_SDKs}"))
+            raise ValueError((f"Unsupported SDK: {sdk_name}. "
+                              f"Please choose one of the following: {_SUPPORTED_SDKs}"))
 
-        hamiltonian_phase_dict = hamiltonian_phase.get_hamiltonian_dictionary()
         # TODO(FBM): add support for general input states
         # We start from |+>^n
         # print(program_gate_builder)
-        if input_state == '|+>':
+        if initial_state == '|+>':
             quantum_circuit = program_gate_builder.H(quantum_circuit=quantum_circuit,
-                                                 qubits_tuple=qubit_ids_device)
-        elif input_state == '|0>':
+                                                     qubits_tuple=qubit_ids_device)
+        elif initial_state == '|0>':
             pass
+
+        elif isinstance(initial_state, AbstractCircuit):
+            quantum_circuit = program_gate_builder.combine_circuits(left_circuit=quantum_circuit,
+                                                                    right_circuit=initial_state)
+
         else:
-            raise ValueError(f"Unsupported input state: {input_state}. Supported: |+>, |0>")
+            raise ValueError(
+                f"Unsupported input state: {initial_state} of type: {type(quantum_circuit)}. Supported: |+>, |0>, {AbstractCircuit}")
 
-        number_of_interactions = len(hamiltonian_abstract_interaction_edges_all)
-        #We will want to divide hamiltonian indices into batches of size time_block_size
-        # We will implement them sequentially
-        number_of_batches = int(np.ceil(number_of_interactions/time_block_size))
+        if time_block_size == 1.0:
+            hamiltonian_phase_dict = hamiltonian_phase.get_hamiltonian_dictionary()
 
-        divided_interactions_logical = [hamiltonian_abstract_interaction_edges_all[i*time_block_size:(i+1)*time_block_size]
-                                         for i in range(0, number_of_batches)]
+            for layer_index in range(depth):
+                if not every_gate_has_its_own_parameter:
+                    beta = angle_mixer[layer_index] if layer_index < depth else 0.0
+                    gamma = angle_phase[layer_index] if layer_index < depth else 0.0
 
-        print(divided_interactions_logical)
-
-        divided_interactions_physical = [[(qubit_ids_device[pair[0]], qubit_ids_device[pair[1]]) for coeff, pair in edges] for
-                                         edges in divided_interactions_logical]
-
-
-
-
-        for layer_index in range(depth):
-            if not every_gate_has_its_own_parameter:
-                beta = angle_mixer[layer_index] if layer_index < depth else 0.0
-                gamma = angle_phase[layer_index] if layer_index < depth else 0.0
-            else:
-                # in that case, number of gates per layer is number of interactions in the Hamiltonian
-                gamma = angle_phase[layer_index * number_of_phase_gates_per_layer:(layer_index + 1) * number_of_phase_gates_per_layer]
-                beta = angle_mixer[layer_index * number_of_mixer_gates_per_layer:(
-                                                                                         layer_index + 1) * number_of_mixer_gates_per_layer]
-
-            total_number_of_interactions_so_far = time_block_size * layer_index
-            #We want to check if all interactions have already been implemented.
-            #Sometimes the number of interactions is not divisible by time_block_size, so we need to account for that
-            #We want to see when we already implemented all interactions. This means that layer_index is divisible by number_of_batches
-
-            if layer_index%number_of_batches == 0:
+                # We implement a layer of single-qubit gates if present in the Hamiltonian
                 single_qubit_indices_abstract_PS = [xi for xi in logical_qubit_indices if
                                                     (xi,) in hamiltonian_phase_dict]
 
@@ -189,7 +220,6 @@ class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
                                                  single_qubit_indices_abstract_PS]
                     single_qubit_indices_PS_device = [qubit_ids_device[i] for i in single_qubit_indices_abstract_PS]
 
-
                     # In given layer, we add the phase separator for single qubit interactions at the end of the layer
                     # TODO(FBM): in theory it doesn't matter if it's at the beginning or the end, in practice it might.
                     quantum_circuit = program_gate_builder.exp_Z(quantum_circuit=quantum_circuit,
@@ -197,86 +227,90 @@ class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
                                                                                      single_qubit_coefficients]),
                                                                  qubits_tuple=single_qubit_indices_PS_device)
 
-
-            if every_gate_has_its_own_parameter:
-                counter_gates = 0
-
-            current_interactions_logical = divided_interactions_logical[layer_index%number_of_batches]
-            current_coefficients = [tup[0] for tup in current_interactions_logical]
-            current_edges_logical = [tup[1] for tup in current_interactions_logical]
-            current_edges_device = divided_interactions_physical[layer_index%number_of_batches]
-            if len(current_edges_device) != len(current_coefficients):
-                raise ValueError(
-                    f"Number of edges and coefficients don't match: {len(current_edges_device)} vs {len(current_coefficients)}")
-
-            for coeff, edge_device in zip(current_coefficients, current_edges_device):
-                if phase_separator_type in [PhaseSeparatorType.QAOA]:
-                    if not every_gate_has_its_own_parameter:
-                        quantum_circuit = program_gate_builder.exp_ZZ(quantum_circuit=quantum_circuit,
-                                                                       angles_tuple=(gamma * coeff,),
-                                                                       qubits_pairs_tuple=[edge_device]
-                                                                       )
-                    else:
-                        quantum_circuit = program_gate_builder.exp_ZZ(quantum_circuit=quantum_circuit,
-                                                                           angles_tuple=(
-                                                                               gamma[counter_gates] * coeff,),
-                                                                           qubits_pairs_tuple=[edge_device]
-                                                                           )
-                elif phase_separator_type in [PhaseSeparatorType.QAMPA]:
-                    if not every_gate_has_its_own_parameter:
-                        quantum_circuit = program_gate_builder.exp_ZZXXYY(quantum_circuit=quantum_circuit,
-                                                                               angles_tuple=(
-                                                                                   (gamma * coeff, beta)),
-                                                                               qubits_pairs_tuple=(edge_device,)
-                                                                               )
-                    else:
-                        quantum_circuit = program_gate_builder.exp_ZZXXYY(quantum_circuit=quantum_circuit,
-                                                                               angles_tuple=((
-                                                                                   gamma[counter_gates] * coeff,
-                                                                                   beta)),
-                                                                               qubits_pairs_tuple=(edge_device,)
-                                                                               )
-
-
-
-                else:
-                    raise ValueError(f"Unsupported Phase Separator Type: {phase_separator_type}")
-
                 if every_gate_has_its_own_parameter:
-                    counter_gates += 1
+                    counter_gates = 0
 
-            if mixer_type in [MixerType.QAOA]:
-                # (3) one-qubit mixing operators
-                # In given layer, we add the phase separator for single qubit interactions at the end of the layer
-                # TODO(FBM): in theory it doesn't matter if it's at the beginning or the end, in practice it might.
-                if not every_gate_has_its_own_parameter:
-                    quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
-                                                                 angles_tuple=beta,
-                                                                 qubits_tuple=qubit_ids_device)
+                current_coefficients = [tup[0] for tup in hamiltonian_abstract_interaction_edges_all]
+                current_edges_logical = [tup[1] for tup in hamiltonian_abstract_interaction_edges_all]
+                current_edges_device = [(qubit_ids_device[qi], qubit_ids_device[qj]) for qi, qj in
+                                        current_edges_logical]
+
+                if len(current_edges_device) != len(current_coefficients):
+                    raise ValueError(
+                        f"Number of edges and coefficients don't match: {len(current_edges_device)} vs {len(current_coefficients)}")
+
+                for coeff, edge_device in zip(current_coefficients, current_edges_device):
+                    if phase_separator_type in [PhaseSeparatorType.QAOA]:
+                        if not every_gate_has_its_own_parameter:
+                            quantum_circuit = program_gate_builder.exp_ZZ(quantum_circuit=quantum_circuit,
+                                                                          angles_tuple=(gamma * coeff,),
+                                                                          qubits_pairs_tuple=[edge_device]
+                                                                          )
+
+                    elif phase_separator_type in [PhaseSeparatorType.QAMPA]:
+                        if not every_gate_has_its_own_parameter:
+                            quantum_circuit = program_gate_builder.exp_ZZXXYY(quantum_circuit=quantum_circuit,
+                                                                              angles_tuple=(
+                                                                                  (gamma * coeff, beta)),
+                                                                              qubits_pairs_tuple=(edge_device,)
+                                                                              )
+
+                    else:
+                        raise ValueError(f"Unsupported Phase Separator Type: {phase_separator_type}")
+
+                if mixer_type in [MixerType.QAOA]:
+                    # (3) one-qubit mixing operators
+                    # In given layer, we add the phase separator for single qubit interactions at the end of the layer
+                    if not every_gate_has_its_own_parameter:
+                        quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
+                                                                     angles_tuple=beta,
+                                                                     qubits_tuple=qubit_ids_device)
+                    else:
+                        quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
+                                                                     angles_tuple=tuple([b for b in beta]),
+                                                                     qubits_tuple=qubit_ids_device)
+                elif mixer_type in [MixerType.QAMPA]:
+                    pass
                 else:
-                    quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
-                                                                 angles_tuple=tuple([b for b in beta]),
-                                                                 qubits_tuple=qubit_ids_device)
-            elif mixer_type in [MixerType.QAMPA]:
-                pass
+                    raise ValueError(f"Unsupported Mixer Type: {mixer_type}")
+
+                if add_barriers:
+                    if sdk_name != 'qiskit':
+                        raise ValueError("Barriers are only supported for Qiskit SDK")
+                    quantum_circuit.barrier(qubit_ids_device)
+
+        elif time_block_size < 1.0:
+            ansatz_builder_callable = partial(FullyConnectedQAOACircuit,
+                                              sdk_name=sdk_name,
+                                              program_gate_builder=program_gate_builder,
+                                              phase_separator_type=phase_separator_type,
+                                              mixer_type=mixer_type,
+                                              every_gate_has_its_own_parameter=every_gate_has_its_own_parameter,
+                                              number_of_qubits_circuit=number_of_qubits_circuit
+                                              )
+
+            if sdk_name.lower() == 'qiskit':
+                quantum_circuit, (angle_phase, angle_mixer) = build_fractional_time_block_ansatz_qiskit(
+                    hamiltonian_phase=hamiltonian_phase,
+                    depth=depth,
+                    time_block_size=time_block_size,
+                    ansatz_builder_callable=ansatz_builder_callable,
+                    ansatz_builder_kwargs={'qubit_indices_physical':qubit_indices_physical},
+                    initial_state=quantum_circuit,
+                    add_barriers=add_barriers,
+                    parameter_names=(
+                        param_name_phase, param_name_mixer)
+                    )
             else:
-                raise ValueError(f"Unsupported Mixer Type: {mixer_type}")
-
-            if add_barriers:
-                if sdk_name!='qiskit':
-                    raise ValueError("Barriers are only supported for Qiskit SDK")
-                quantum_circuit.barrier(qubit_ids_device)
-
-
-
-
+                raise NotImplementedError("Fractional time block size is only implemented for Qiskit SDK")
+        else:
+            raise ValueError("time_block_size must be in (0, 1] for circuit not based on SWAP networks")
 
         super().__init__(
             quantum_circuit=quantum_circuit,
-            mapped_hamiltonian=hamiltonian_phase,
             logical_to_physical_qubits_map=qubit_ids_device,
             parameters=[angle_phase, angle_mixer],
-            permutation_circuit_network=None,
+            qubit_mapping_permutation=None,
             ansatz_specifier=ansatz_specifier
 
         )
@@ -289,21 +323,68 @@ class FullyConnectedQAOACircuit(MappedAnsatzCircuit):
 
     @property
     def depth(self):
+        """
+        Get the QAOA circuit depth (number of layers).
+        
+        :returns: Number of QAOA layers (p parameter)
+        :rtype: int
+        """
         return self._depth
 
     @property
     def phase_separator_type(self):
+        """
+        Get the type of phase separator gates used in the circuit.
+        
+        Phase separators implement the cost Hamiltonian evolution in each QAOA layer.
+        Standard QAOA uses exp(-i*gamma*C) gates, while QAMPA uses more complex
+        parametrized gates.
+        
+        :returns: Phase separator gate type configuration
+        :rtype: PhaseSeparatorType
+        """
         return self._phase_separator_type
 
     @property
     def mixer_type(self):
+        """
+        Get the type of mixer gates used in the circuit.
+        
+        Mixers implement the driver Hamiltonian evolution that explores the solution
+        space. Standard QAOA uses X-rotation gates, while QAMPA uses alternative
+        mixer strategies.
+        
+        :returns: Mixer gate type configuration
+        :rtype: MixerType
+        """
         return self._mixer_type
-
 
     @property
     def time_block_size(self):
+        """
+        Get the time block size for fractional QAOA layers.
+        
+        For fully-connected QAOA, this represents the fraction of Hamiltonian
+        interactions included in each layer. When < 1.0, the circuit uses
+        fractional time blocking to split interactions across sub-layers.
+        
+        For time_block_size = 0.5 with n interactions, each layer contains
+        approximately n*0.5 interactions.
+        
+        :returns: Fraction of Hamiltonian interactions per layer (0.0-1.0)
+        :rtype: float
+        """
         return self._time_block_size
 
     @property
     def gate_builder(self):
+        """
+        Get the gate builder used for SDK-specific gate implementations.
+        
+        The gate builder provides an abstraction layer for different quantum SDKs,
+        allowing the same circuit logic to generate Qiskit, PyQuil, or Cirq circuits.
+        
+        :returns: Gate builder instance for this circuit
+        :rtype: AbstractProgramGateBuilder
+        """
         return self._gate_builder

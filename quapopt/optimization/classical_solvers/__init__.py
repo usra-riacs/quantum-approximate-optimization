@@ -1,10 +1,10 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from typing import List, Tuple, Union
 import numpy as np
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import pandas as pd
 from enum import Enum
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian

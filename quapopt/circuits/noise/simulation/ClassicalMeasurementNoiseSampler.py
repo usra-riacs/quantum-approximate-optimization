@@ -2,9 +2,10 @@ import time
 from typing import List, Union, Tuple
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 from quapopt.circuits.noise.simulation import MeasurementNoiseType
 from quapopt.circuits.noise.simulation.classical_noise import add_1q_tensor_product_noise_to_samples

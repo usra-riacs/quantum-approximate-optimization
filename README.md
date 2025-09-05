@@ -27,6 +27,7 @@ curl -fsSL https://pixi.sh/install.sh | sh
 (see https://pixi.sh/v0.49.0/installation/ for details and other installation options)
 
 
+
 ### Install packages using pixi
 
 #### Main packages
@@ -40,7 +41,6 @@ The above installs all the basic packages required to run the project.
 
 See below for additional packages that can be installed to extend the functionality of the repository.
 
-Note: if you run into problems with dependecies, try removing pixi.lock file and running "install" command again.
 
 #### [Recommended] Additional packages 
 
@@ -77,7 +77,10 @@ pixi run check_cuda
 NOTE: currently, as far as I know, qiskit-aer-gpu does not properly install with pip. 
 To use it, a brave user is advised to build the repository locally and add separate environment and feature in pixi.toml file.
 
-#### [Required] Build cpp parts of the project
+
+
+
+#### Build cpp parts of the project
 After setting up the environment, run the following command in the root of the repository
 
 ```
@@ -99,10 +102,21 @@ and enter the relevant directory.
 If you use IDE like PyCharm or Microsoft Visual Studio, please refer to https://pixi.sh/dev/integration/editor/jetbrains for instructions on how to integrate pixi with your IDE (the link leads to PyCharm instructions, but others are also supported).
 
 
+#### [Tip] Clean setup
+
+If you run into troubles with pixi, it might be useful to remove pixi.lock file and try again.
+```
+rm ./pixi.lock
+```
+together with
+```
+pixi clean && pixi clean cache
+```
+
 
 ### [Not recommended] Install packages using pip 
 
-It should be also possible to install the repository using pip, but it is not recommended, as it might lead to some issues with dependencies.
+It should be also possible to install the repository using pip, but it is not recommended, as it might lead to some issues with dependencies, especially when using "full" and "gpu" environments.
 
 For basic installation, in your virtual environment, you would run:
 
@@ -149,6 +163,8 @@ We use some (refactored) code from the following repositories:
 * https://github.com/aboev/pymqlib (various classical solvers, including Burer-Monteiro algorithm) under The MIT License (MIT)
 
 The relevant licenses for those repos can also be found in both subfolders with forked repos (whenever relevant), and the above links.
+
+
 
 ## References
 This repository is based, among others, on the following papers, which describe some of the algorithms and methods used in the code:

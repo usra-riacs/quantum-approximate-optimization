@@ -11,8 +11,8 @@ name = "quapopt"
 authors = [{ name = "Filip B. Maciejewski", email = "fmaciejewski@usra.edu" }]
 description = "Various tools for running quantum approximate optimization experiments and simulations."
 readme = "README.md"
-version = "0.2.0"
-requires-python = ">=3.10"
+version = "0.2.1"
+requires-python = "==3.12"
 
 
 dependencies = [
@@ -58,9 +58,6 @@ mlvl = [
 
 
 gpu = [
-    #I think cuda cannot be installed via pip, so user needs to install it externally
-    #"cuda-toolkit>=12.9.1,<13",
-#    "cupy>=13.4.1,<14",
     "cupy-cuda12x",
     "numba-cuda>=0.16.0,<0.17",
 ]

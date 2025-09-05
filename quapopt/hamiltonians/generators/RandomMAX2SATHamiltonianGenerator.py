@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
  
 from typing import List, Tuple, Optional, Union
 
@@ -12,7 +12,7 @@ from quapopt.hamiltonians.generators.RandomClassicalHamiltonianGeneratorBase imp
 # Define the type of the clause
 #first element is the sign of the variable, second element is the variable index
 ClauseFormat = Tuple[Tuple[int, int], Tuple[int, int]]
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 
 

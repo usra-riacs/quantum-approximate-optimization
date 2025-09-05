@@ -8,7 +8,8 @@ import pandas as pd
 import scipy as sc
 from scipy.optimize import basinhopping
 from tqdm.notebook import tqdm
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 from scipy import optimize as scopt
 from quapopt.optimization.parameter_setting import OptimizerType, ParametersBoundType

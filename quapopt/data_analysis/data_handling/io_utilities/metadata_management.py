@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
+
 
 """
 Hierarchical metadata management system for organizing related experiments.
@@ -15,10 +15,12 @@ from typing import List, Any, Optional
 
 import pandas as pd
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.data_analysis.data_handling.io_utilities import IOMixin, DEFAULT_STORAGE_DIRECTORY, add_file_format_suffix
-from quapopt.data_analysis.data_handling.standard_names import (
+from quapopt.data_analysis.data_handling.schemas import (
     STANDARD_NAMES_DATA_TYPES as SNDT,
+    STANDARD_NAMES_DATA_TYPES_EXPERIMENT_SETS as SNDTES,
     STANDARD_NAMES_VARIABLES as SNV
 )
 
@@ -39,7 +41,7 @@ from quapopt.data_analysis.data_handling.standard_names import (
 # ================================================================================
 
 
-@dataclass(frozen=True)
+@dataclass
 class ExperimentSetMetadataConfig:
     """
     Configuration for an experiment set metadata manager.
@@ -48,7 +50,7 @@ class ExperimentSetMetadataConfig:
     It does not store any metadata itself, but provides a structure for initializing the manager.
     """
 
-    ExperimentSetName: Optional[str] = "DefaultExperimentSet"
+    ExperimentSetName: Optional[str] = None
     ExperimentSetId: Optional[str] = None
 
     directory_main: Optional[Path] = None
@@ -63,14 +65,14 @@ class ExperimentSetMetadataConfig:
 
         # Ensure created_timestamp is set to current time if not provided
         if self.created_timestamp is None:
-            object.__setattr__(self, 'created_timestamp', anf.get_current_date_time())
+            self.created_timestamp = anf.get_current_date_time()
 
         # Generate a random ID if not provided
         if self.ExperimentSetId is None:
-            object.__setattr__(self, 'ExperimentSetId', anf.create_random_uuid())
+            self.ExperimentSetId = anf.create_random_uuid()
 
         if self.ExperimentSetName is None:
-            object.__setattr__(self, 'ExperimentSetName', self.ExperimentSetId[:10])
+            self.ExperimentSetName = self.ExperimentSetId
 
 
     def to_dataframe(self):
@@ -112,8 +114,8 @@ class ExperimentSetMetadataManager(IOMixin):
     """
 
     def __init__(self,
-                 experiment_set_name: Optional[str] = "DefaultExperimentSet",
                  experiment_set_id: Optional[str] = None,
+                 experiment_set_name: Optional[str] = None,
                  directory_main: Optional[str | Path] = None,
                  default_storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY,
                  description: Optional[str] = None,
@@ -162,11 +164,35 @@ class ExperimentSetMetadataManager(IOMixin):
 
         # Handle name fallback
         if self.experiment_set_name is None:
-            self.experiment_set_name = self.experiment_set_id[:10]
+            self.experiment_set_name = self.experiment_set_id
 
         # Auto-save if we have existing experiment instances
         if len(self._experiment_instances_ids) > 0:
             self._write_set_tracking()
+
+    @staticmethod
+    def _convert_to_set_level_metadata(metadata_data_type: SNDT) -> SNDT:
+        """
+        Convert instance-level metadata type to experiment set level.
+        
+        Since this manager handles experiment set metadata, we automatically
+        convert any metadata types to their set-level equivalents.
+        
+        :param metadata_data_type: Original data type (potentially instance-level)
+        :return: Corresponding set-level data type
+        """
+        # Get the attribute name from the instance-level type
+        for attr_name in dir(SNDT):
+            if not attr_name.startswith('_'):
+                attr_value = getattr(SNDT, attr_name)
+                if attr_value == metadata_data_type:
+                    # Found the matching attribute, now get set-level version
+                    if hasattr(SNDTES, attr_name):
+                        return getattr(SNDTES, attr_name)
+                    break
+        
+        # If no conversion found, return original (for non-metadata types)
+        return metadata_data_type
 
     @classmethod
     def from_config(cls,
@@ -295,24 +321,35 @@ class ExperimentSetMetadataManager(IOMixin):
 
         return None
 
-    def get_experiment_set_prefix(self) -> str:
-        return self.get_key_value_pair(key_id=SNV.ExperimentSetName.id,
-                                       value=self.experiment_set_name)
+    def get_experiment_set_suffix(self) -> str:
+        return self.get_key_value_pair(key_id=SNV.ExperimentSetID.id,
+                                       value=self.experiment_set_id)
 
     @classmethod
     def get_metadata_filename(cls,
-                              experiment_set_name: str,
-                              metadata_data_type: SNDT) -> str:
-        prefix = cls.get_key_value_pair(key_id=SNV.ExperimentSetName.id,
-                                        value=experiment_set_name)
+                              metadata_data_type: SNDT,
+                              experiment_set_id: str,
+                              table_name_prefix: Optional[str] = None,
+                              table_name_suffix: Optional[str] = None) -> str:
 
-        return cls.get_full_table_name(table_name_parts=[prefix],
+        # Convert to set-level metadata type
+        metadata_data_type = cls._convert_to_set_level_metadata(metadata_data_type)
+
+        experiment_set_suffix = cls.get_key_value_pair(key_id=SNV.ExperimentSetID.id,
+                                                       value=experiment_set_id)
+
+        table_name_parts = [table_name_prefix, table_name_suffix, experiment_set_suffix]
+        
+        return cls.get_full_table_name(table_name_parts=table_name_parts,
                                        data_type=metadata_data_type)
 
     def get_metadata_path(self,
                           metadata_data_type: SNDT) -> Path:
         """Get the metadata directory path."""
-
+        
+        # Convert to set-level metadata type
+        metadata_data_type = self._convert_to_set_level_metadata(metadata_data_type)
+        
         return self.get_absolute_path_of_data_type(data_type=metadata_data_type)
 
     def _write_set_tracking(self) -> Path:
@@ -323,7 +360,12 @@ class ExperimentSetMetadataManager(IOMixin):
 
     def read_shared_metadata(self,
                              metadata_data_type: SNDT,
-                             persistence_strategy: Optional['MetadataPersistenceStrategy'] = None) -> Any:
+                             persistence_strategy: Optional['MetadataPersistenceStrategy'] = None,
+                             table_name_prefix: Optional[str] = None,
+                             table_name_suffix: Optional[str] = None) -> Any:
+
+        # Convert to set-level metadata type
+        metadata_data_type = self._convert_to_set_level_metadata(metadata_data_type)
 
         if persistence_strategy is None:
             persistence_strategy = SplitFilePersistence()
@@ -331,12 +373,17 @@ class ExperimentSetMetadataManager(IOMixin):
         if not isinstance(persistence_strategy, SplitFilePersistence):
             raise ValueError("load_shared_metadata only works with SplitFilePersistence strategy")
 
-        return persistence_strategy.read_set_metadata(self, metadata_data_type)
+        return persistence_strategy.read_set_metadata(self, metadata_data_type, table_name_prefix, table_name_suffix)
 
     def write_shared_metadata(self,
                               metadata_data_type: SNDT,
                               shared_metadata: Any,
-                              overwrite_existing: bool = False) -> Path:
+                              overwrite_existing: bool = False,
+                              table_name_prefix: Optional[str] = None,
+                              table_name_suffix: Optional[str] = None) -> Path:
+
+        # Convert to set-level metadata type
+        metadata_data_type = self._convert_to_set_level_metadata(metadata_data_type)
 
         persistence_strategy = self.persistence_strategy
 
@@ -347,77 +394,11 @@ class ExperimentSetMetadataManager(IOMixin):
             self,
             metadata_data_type,
             shared_metadata,
-            overwrite_existing
+            overwrite_existing,
+            table_name_prefix,
+            table_name_suffix
         )
 
-
-#
-# @dataclass(frozen=True)
-# class ExperimentInstanceMetadataManager(LoggerConfig, MetadataPathMixin):
-#     """
-#     Configuration for a specific experiment instance within an experiment set.
-#     References the parent ExperimentSetMetadataManager and adds instance-specific metadata.
-#
-#     This is domain-agnostic - specific domains should extend this class.
-#     """
-#     # Reference to the parent experiment set
-#     # Note this helps to recover metadata that is shared across experiments
-#     ExperimentSetId: Optional[str] = None
-#     ExperimentSetName: Optional[str] = None
-#
-#     # Main directory where metadata for this experiment instance will be stored.
-#     metadata_main_directory: Optional[Path] = field(default=None, init=False)
-#
-#     # Human-readable name for the experiment instance.
-#     # Note: this will be used to generate metadata filenames, so it should be valid for file naming.
-#     experiment_instance_name: str = "DefaultExperimentInstance"
-#     # Unique identifier for this experiment instance
-#     # Note: this will be used to identify the instance if multiple instances are used with the same name
-#     experiment_instance_id: str = field(default_factory=lambda: anf.create_random_uuid())
-#
-#
-#     # Timestamp for this specific instance
-#     instance_timestamp: str = field(default_factory=lambda: anf.get_current_date_time())
-#
-#     def __post_init__(self):
-#         # For frozen dataclass, we need to use object.__setattr__ in __post_init__
-#         # This is the only acceptable place for this pattern
-#         if self.experiment_instance_name is None:
-#             object.__setattr__(self, 'experiment_instance_name', self.experiment_instance_id[0:10])
-#
-#         object.__setattr__(self, 'metadata_base_path', self.base_path)
-#
-#     def load_experiment_set_metadata(self,
-#                                      persistence_strategy: Optional['MetadataPersistenceStrategy'] = None,
-#                                      data_type: SNDT = None) -> 'ExperimentSetMetadataManager':
-#         """Load the parent experiment set configuration."""
-#         return ExperimentSetMetadataManager.read_set_tracking(
-#             ExperimentSetName=self.ExperimentSetName,
-#             metadata_main_directory=self.metadata_main_directory,
-#             persistence_strategy=persistence_strategy,
-#             data_type=data_type
-#         )
-#
-#     @classmethod
-#     def get_experiment_instance_prefix(cls, experiment_instance_name: str) -> str:
-#         """Generate prefix for experiment instance metadata files."""
-#         return cls.generate_prefix(SNV.ExperimentInstanceName.id, experiment_instance_name)
-#
-#     def _get_experiment_instance_prefix(self) -> str:
-#         """Non-static version to use instance's experiment instance name."""
-#         return self.get_experiment_instance_prefix(self.experiment_instance_name)
-#
-#     @classmethod
-#     def get_metadata_filename(cls, experiment_instance_name: str,
-#                               data_type: SNDT) -> str:
-#         """Generate filename for storing this instance's metadata."""
-#         prefix = cls.get_experiment_instance_prefix(experiment_instance_name)
-#         return cls.generate_metadata_filename(prefix, data_type)
-#
-#     def _get_metadata_filename(self, data_type: SNDT) -> str:
-#         """Non-static version to use instance's experiment instance name."""
-#         return self.get_metadata_filename(self.experiment_instance_name, data_type)
-#
 
 # ================================================================================
 # METADATA PERSISTENCE STRATEGY
@@ -432,14 +413,18 @@ class MetadataPersistenceStrategy(ABC):
             metadata_manager: ExperimentSetMetadataManager,
             metadata_data_type: SNDT,
             shared_metadata: Any,
-            overwrite_existing: bool) -> Path:
+            overwrite_existing: bool,
+            table_name_prefix: Optional[str] = None,
+            table_name_suffix: Optional[str] = None) -> Path:
         pass
 
     @staticmethod
     @abstractmethod
     def read_set_metadata(
             metadata_manager: ExperimentSetMetadataManager,
-            metadata_data_type: SNDT) -> Any:
+            metadata_data_type: SNDT,
+            table_name_prefix: Optional[str] = None,
+            table_name_suffix: Optional[str] = None) -> Any:
         pass
 
     @staticmethod
@@ -481,7 +466,8 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
 
         config_dir = metadata_manager.get_metadata_path(SNDT.ExperimentSetTracking)
         config_filename = metadata_manager.get_metadata_filename(
-            metadata_manager.experiment_set_name, SNDT.ExperimentSetTracking)
+            metadata_data_type=SNDT.ExperimentSetTracking, 
+            experiment_set_id=metadata_manager.experiment_set_id)
         config_csv_path = config_dir / config_filename
 
         #from . import add_file_format_suffix
@@ -490,20 +476,27 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
     @staticmethod
     def _get_json_file_path(#self,
                             metadata_manager: ExperimentSetMetadataManager,
-                           metadata_data_type: SNDT) -> Path:
+                           metadata_data_type: SNDT,
+                           table_name_prefix: Optional[str] = None,
+                           table_name_suffix: Optional[str] = None) -> Path:
         """
         Get the path for the JSON file storing shared metadata.
 
         Args:
             metadata_manager: ExperimentSetMetadataManager instance
             metadata_data_type: Data type for the shared metadata
+            table_name_prefix: Optional prefix for the table name
+            table_name_suffix: Optional suffix for the table name
 
         Returns:
             Path to the JSON file
         """
         metadata_dir = metadata_manager.get_metadata_path(metadata_data_type)
         metadata_filename = metadata_manager.get_metadata_filename(
-            metadata_manager.experiment_set_name, metadata_data_type)
+            metadata_data_type=metadata_data_type, 
+            experiment_set_id=metadata_manager.experiment_set_id,
+            table_name_prefix=table_name_prefix, 
+            table_name_suffix=table_name_suffix)
         metadata_json_path = metadata_dir / metadata_filename
 
         #from . import add_file_format_suffix
@@ -520,6 +513,7 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
 
         # Ensure directory exists
         config_csv_path.parent.mkdir(parents=True, exist_ok=True)
+
 
 
         #First, we wish to check if the given instance already exists
@@ -545,6 +539,8 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
         # pd.set_option('display.max_rows', None)
         # pd.set_option('display.max_columns', None)
 
+        # print("hejka",config_csv_path)
+        # print('hejka parent:',config_csv_path.parent)
 
 
         df.to_csv(config_csv_path, index=False)
@@ -580,7 +576,7 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
 
 
         df = df[df[SNV.ExperimentSetID.id_long] == metadata_manager.experiment_set_id]
-
+        df = df[df[SNV.ExperimentSetName.id_long] == metadata_manager.experiment_set_name]
 
         return df
 
@@ -593,11 +589,15 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
             metadata_manager: ExperimentSetMetadataManager,
             metadata_data_type: SNDT,
             shared_metadata: Any,
-            overwrite_existing: bool) -> Path:
+            overwrite_existing: bool,
+            table_name_prefix: Optional[str] = None,
+            table_name_suffix: Optional[str] = None) -> Path:
         """Save shared metadata to JSON file."""
         # Generate shared metadata JSON path
         metadata_json_path   = SplitFilePersistence._get_json_file_path(metadata_manager=metadata_manager,
-                                                                    metadata_data_type=metadata_data_type)
+                                                                    metadata_data_type=metadata_data_type,
+                                                                    table_name_prefix=table_name_prefix,
+                                                                    table_name_suffix=table_name_suffix)
 
         # Check if file exists and handle overwrite logic
         if metadata_json_path.exists() and not overwrite_existing:
@@ -627,20 +627,26 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
     @staticmethod
     def read_set_metadata(#cls,
                           metadata_manager: ExperimentSetMetadataManager,
-                          metadata_data_type: SNDT) -> Any:
+                          metadata_data_type: SNDT,
+                          table_name_prefix: Optional[str] = None,
+                          table_name_suffix: Optional[str] = None) -> Any:
         """
         Load shared metadata JSON file for given data type.
         
         Args:
             metadata_manager: ExperimentSetMetadataManager to determine file paths
             metadata_data_type: Data type for shared metadata file
+            table_name_prefix: Optional prefix for the table name
+            table_name_suffix: Optional suffix for the table name
             
         Returns:
             Loaded shared metadata (dict, DataFrame, etc.)
         """
         # Generate shared metadata JSON path
         metadata_json_path   = SplitFilePersistence._get_json_file_path(metadata_manager=metadata_manager,
-                                                         metadata_data_type=metadata_data_type)
+                                                         metadata_data_type=metadata_data_type,
+                                                         table_name_prefix=table_name_prefix,
+                                                         table_name_suffix=table_name_suffix)
 
         if not metadata_json_path.exists():
             raise FileNotFoundError(f"Shared metadata file not found: {metadata_json_path}")

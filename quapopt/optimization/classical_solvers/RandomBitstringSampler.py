@@ -1,12 +1,12 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 import gc
 from typing import Optional, Dict, Any
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import time
 
 #Lazy monkey-patching of cupy

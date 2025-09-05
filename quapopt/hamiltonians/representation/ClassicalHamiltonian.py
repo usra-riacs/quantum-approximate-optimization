@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 import os
@@ -9,14 +9,14 @@ from typing import Optional, Union, Tuple, List, Any
 import numpy as np
 import pandas as pd
 
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import MAIN_KEY_SEPARATOR
+from quapopt.data_analysis.data_handling.schemas.naming import MAIN_KEY_SEPARATOR
 from quapopt.data_analysis.data_handling.io_utilities import IOMixin, IOHamiltonianMixin
 
 
 
-from quapopt.data_analysis.data_handling.standard_names import \
+from quapopt.data_analysis.data_handling.schemas import \
     HamiltonianInstanceSpecifierGeneral, HamiltonianClassSpecifierGeneral
-from quapopt.data_analysis.data_handling.standard_names import STANDARD_NAMES_VARIABLES as SNV
+from quapopt.data_analysis.data_handling.schemas import STANDARD_NAMES_VARIABLES as SNV
 from quapopt.hamiltonians.representation.ClassicalHamiltonianBase import ClassicalHamiltonianBase
 
 
@@ -45,12 +45,19 @@ class IOClassicalHamiltonianMixin(IOHamiltonianMixin):
     def write_hamiltonian_to_file(cls,
                                   hamiltonian: Any, #should be ClassicalHamiltonian
                                    known_energies_dict: Optional[dict] = None,
-                                   class_specific_data: Optional[dict] = None):
+                                   class_specific_data: Optional[dict] = None,
+                                  overwrite_if_exists=False,
+                                  ignore_if_exists=True
+
+                                  ):
 
         file_path_main = cls._get_file_path_main(hamiltonian_class_specifier=hamiltonian.hamiltonian_class_specifier,
                                                  hamiltonian_instance_specifier=hamiltonian.hamiltonian_instance_specifier)
         cls._write_hamiltonian_to_text_file(hamiltonian=hamiltonian.hamiltonian_list_representation,
-                                               file_path=file_path_main)
+                                               file_path=file_path_main,
+                                            overwrite_if_exists=overwrite_if_exists,
+                                            ignore_if_exists=ignore_if_exists
+                                            )
         if known_energies_dict is not None:
             cls._write_hamiltonian_solutions(file_path_main=file_path_main,
                                          known_energies_dict=known_energies_dict)
@@ -155,7 +162,10 @@ class ClassicalHamiltonian(ClassicalHamiltonianBase,IOClassicalHamiltonianMixin)
 
 
     def write_to_file(self,
-                      hamiltonian=None):
+                      hamiltonian=None,
+                      overwrite_if_exists=False,
+                      ignore_if_exists=True
+                      ):
 
         if hamiltonian is None:
             hamiltonian = self
@@ -164,7 +174,9 @@ class ClassicalHamiltonian(ClassicalHamiltonianBase,IOClassicalHamiltonianMixin)
         class_specific_data = hamiltonian._class_specific_data
         return self.write_hamiltonian_to_file(hamiltonian=hamiltonian,
                                           known_energies_dict=known_energies_dict,
-                                          class_specific_data=class_specific_data)
+                                          class_specific_data=class_specific_data,
+                                              overwrite_if_exists=overwrite_if_exists,
+                                              ignore_if_exists=ignore_if_exists)
 
     def get_file_path_main(self):
         return self.construct_base_path()

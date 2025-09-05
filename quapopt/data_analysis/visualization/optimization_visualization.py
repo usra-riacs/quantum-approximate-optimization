@@ -1,8 +1,8 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
- 
-from typing import List, Tuple
+
+
+from typing import List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -13,36 +13,40 @@ import plotly.graph_objects as go
 from scipy.interpolate import griddata
 from quapopt.data_analysis.data_handling import STANDARD_NAMES_DATA_TYPES as SNDT, STANDARD_NAMES_VARIABLES as SNV
 
-
-_PLOTTING_NICE_NAMES = {f"{SNV.Angles.id_long}-0":"γ",
-                        f"{SNV.Angles.id_long}-1":"β",
+_PLOTTING_NICE_NAMES = {f"{SNV.Angles.id_long}-0": "γ",
+                        f"{SNV.Angles.id_long}-1": "β",
                         f"{SNV.EnergyMean.id_long}": "<E>",
                         f"{SNV.EnergySTD.id_long}": "σ(E)",
                         f"{SNV.EnergyBest.id_long}": "E",
-                        f"{SNV.ApproximationRatioMean.id_long}":"<AR>",
-                        f"{SNV.ApproximationRatioSTD.id_long}":"σ(AR)",
-                        f"{SNV.ApproximationRatioBest.id_long}":"AR",
+                        f"{SNV.ApproximationRatioMean.id_long}": "<AR>",
+                        f"{SNV.ApproximationRatioSTD.id_long}": "σ(AR)",
+                        f"{SNV.ApproximationRatioBest.id_long}": "AR",
                         }
-def get_nice_variable_name(name:str):
+
+
+def get_nice_variable_name(name: str):
     if name in _PLOTTING_NICE_NAMES.keys():
         return _PLOTTING_NICE_NAMES[name]
     return name
+
+
 _gnvn = get_nice_variable_name
 
 
 def get_interpolated_heatmap(df: pd.DataFrame,
-                                x_name: str,
-                                y_name: str,
-                                fom_name: str,
-                                bounds_x: Tuple[float, float]=None,
-                                bounds_y: Tuple[float, float]=None,
-                                min_value=None,
-                                max_value=None,
-                                grid_resolution=1000,
+                             x_name: str,
+                             y_name: str,
+                             fom_name: str,
+                             fom_err_name: Optional[str] = None,
+                             bounds_x: Tuple[float, float] = None,
+                             bounds_y: Tuple[float, float] = None,
+                             min_value=None,
+                             max_value=None,
+                             grid_resolution=1000,
                              in_3d=False,
-                             colormap_name='Viridis_r') -> Tuple[go.Heatmap, go.Scatter]:
-
-    #print("HEJ:",in_3d)
+                             colormap_name='Viridis_r',
+                             markersize_scatter=0.25) -> Tuple[go.Heatmap, go.Scatter]:
+    # print("HEJ:",in_3d)
     if bounds_x is None:
         bounds_x = (df[x_name].min(), df[x_name].max())
     if bounds_y is None:
@@ -53,29 +57,37 @@ def get_interpolated_heatmap(df: pd.DataFrame,
     grid_x, grid_y = np.linspace(*bounds_x, grid_resolution), np.linspace(*bounds_y, grid_resolution)
     grid_x, grid_y = np.meshgrid(grid_x, grid_y)
 
+    # clean from NaNs
+    df_clean = df.dropna(subset=[x_name, y_name, fom_name])
     # Interpolate values onto the fixed grid
     grid_values = griddata(
-        (df[x_name], df[y_name]),  # Points from the optimizer's trajectory
-        df[fom_name],  # Values at those points
+        (df_clean[x_name], df_clean[y_name]),  # Points from the optimizer's trajectory
+        df_clean[fom_name],  # Values at those points
         (grid_x, grid_y),  # Target grid for interpolation
         method='cubic'
     )
-    # Create the heatmap
-    #colorscale_heatmap = 'Viridis_r'
-    colorbar_heatmap = dict(title=f"{_gnvn(fom_name)}", xpad=5.0, ypad=50.0)
-    markersize_scatter = 0.25
-
 
     scatter_markers_dict = dict(
-                        color='black',
-                        size=markersize_scatter,
-                        symbol='circle',
-                        line=dict(color="rgba(255, 255, 255, 0.5)", width=1)
-                    )
-    scatter_hovertemplate = (f"{_gnvn(x_name)}: %{{x}}"
-                             f"<br>{_gnvn(y_name)}: %{{y}}"
-                             f"<br>{_gnvn(fom_name)}: %{{text}}<extra></extra>")
+        color='black',
+        size=markersize_scatter,
+        symbol='circle',
+        line=dict(color="rgba(255, 255, 255, 0.5)", width=1)
+    )
 
+    # I want hover in scatter to provide info about x,y and z:
+    scatter_hovertemplate = [f"{_gnvn(x_name)}: %{{x}}<br>"
+                             f"{_gnvn(y_name)}: %{{y}}<br>"
+                             f"{_gnvn(fom_name)}: %{{text}}<extra></extra>"]
+
+    if fom_err_name is not None:
+        assert fom_err_name in df.columns, f"fom_err_name '{fom_err_name}' not found in dataframe columns."
+        # we want to add also error info to hover template with +-1 signs
+        scatter_hovertemplate.append(f"±: %{{customdata}} (1σ)")
+
+    scatter_hovertemplate = ''.join(scatter_hovertemplate)
+
+    colorbar_heatmap = dict(title=f"{_gnvn(fom_name)}", xpad=5.0, ypad=50.0)
+    add_kwargs = {'colorbar': colorbar_heatmap}
 
     if in_3d:
         heatmap = go.Surface(
@@ -83,9 +95,10 @@ def get_interpolated_heatmap(df: pd.DataFrame,
             x=np.linspace(*bounds_x, grid_resolution),
             y=np.linspace(*bounds_y, grid_resolution),
             colorscale=colormap_name,
-            colorbar=colorbar_heatmap,
             cmin=min_value,
             cmax=max_value,
+            **add_kwargs
+            # connectgaps=True
         )
         scatter = go.Scatter3d(
             x=df[x_name],
@@ -95,6 +108,7 @@ def get_interpolated_heatmap(df: pd.DataFrame,
             marker=scatter_markers_dict,
             text=df[fom_name],
             hovertemplate=scatter_hovertemplate,
+            customdata=df[fom_err_name] if fom_err_name is not None else None,
         )
 
     else:
@@ -103,41 +117,41 @@ def get_interpolated_heatmap(df: pd.DataFrame,
             x=np.linspace(*bounds_x, grid_resolution),
             y=np.linspace(*bounds_y, grid_resolution),
             colorscale=colormap_name,
-            colorbar=colorbar_heatmap,
             zmin=min_value,
             zmax=max_value,
-            zorder=0
+            zorder=0,
+            **add_kwargs
+
         )
 
         # Overlay the white background where NaNs are present
         heatmap['z'] = np.where(np.isnan(grid_values), None, grid_values)
 
         scatter = go.Scatter(
-                        x=df[x_name],
-                        y=df[y_name],
-                        mode='markers',
-                        marker=scatter_markers_dict,
-                        text=df[fom_name],
-                        hovertemplate=scatter_hovertemplate,
-                        zorder=1
-                    )
+            x=df[x_name],
+            y=df[y_name],
+            mode='markers',
+            marker=scatter_markers_dict,
+            text=df[fom_name],
+            hovertemplate=scatter_hovertemplate,
+            zorder=1,
+            customdata=df[fom_err_name] if fom_err_name is not None else None
+        )
 
     return heatmap, scatter
 
 
 def get_optimization_trajectory(df: pd.DataFrame,
-                                   x_name: str,
-                                   y_name: str,
-                                   fom_name: str,
-                                   names_suffix: str = '',
-                                   minimization=True,
-                                    in_3d=False) -> Tuple[go.Scatter, go.Scatter, go.Scatter]:
-
+                                x_name: str,
+                                y_name: str,
+                                fom_name: str,
+                                names_suffix: str = '',
+                                minimization=True,
+                                in_3d=False) -> Tuple[go.Scatter, go.Scatter, go.Scatter]:
     if in_3d:
         hover_z = fom_name + ": %{z}<extra></extra>"
     else:
         hover_z = fom_name + ": %{customdata}<extra></extra>"
-
 
     hovertemplate = (
             f"{_gnvn(x_name)}" + ": %{x}<br>" +
@@ -164,11 +178,11 @@ def get_optimization_trajectory(df: pd.DataFrame,
     markersize_scatter = 4
 
     if in_3d:
-        markersize_scatter*=0.5
+        markersize_scatter *= 0.5
 
     marker_dict_main = dict(size=markersize_scatter, color='red')
-    marker_dict_start = dict(size=2*markersize_scatter, color='blue', symbol='x')
-    marker_dict_best = dict(size=2*markersize_scatter, color='magenta', symbol='diamond')
+    marker_dict_start = dict(size=2 * markersize_scatter, color='blue', symbol='x')
+    marker_dict_best = dict(size=2 * markersize_scatter, color='magenta', symbol='diamond')
 
     if in_3d:
 
@@ -240,53 +254,56 @@ def get_optimization_trajectory(df: pd.DataFrame,
             name=best_name,
             customdata=[best_point[fom_name]],
             hovertemplate=hovertemplate,
-            zorder = 3,
+            zorder=3,
         )
 
     return trajectory, trajectory_first, trajectory_best
 
+
 """
     Some small modification
 """
+
+
 def get_simple_optimization_trajectory(df: pd.DataFrame,
                                        x_name: str,
                                        y_name: str,
                                        fom_name: str,
                                        names_suffix: str = '',
-                                       in_3d:bool=False) -> Tuple[go.Scatter, go.Scatter, go.Scatter]:
+                                       in_3d: bool = False) -> Tuple[go.Scatter, go.Scatter, go.Scatter]:
     path_name = f"Path {names_suffix}"
     start_name = f"Start {names_suffix}"
     best_name = f"Best {names_suffix}"
 
-    # find THE BEST point   
+    # find THE BEST point
     dash_style = 'dot'
     line_dict_main = dict(color='red', width=0.5, dash=dash_style)
     markersize_scatter = 4
 
     marker_dict_main = dict(size=markersize_scatter, color='red')
-    marker_dict_start = dict(size=2*markersize_scatter, color='blue', symbol='x')
-    marker_dict_best = dict(size=2*markersize_scatter, color='magenta', symbol='diamond')
+    marker_dict_start = dict(size=2 * markersize_scatter, color='blue', symbol='x')
+    marker_dict_best = dict(size=2 * markersize_scatter, color='magenta', symbol='diamond')
     # Add the optimizer's trajectory
 
     if in_3d:
         trajectory = go.Scatter3d(
-                        x=df[x_name],
-                        y=df[y_name],
-                        z=df[fom_name],
-                        hovertemplate=(f"{_gnvn(x_name)}: %{{x}}<br>",
-                                       f"{_gnvn(y_name)}: %{{y}}<br>",
-                                       f"{_gnvn(fom_name)}: %{{z}}<extra></extra>"),
-                        mode="lines+markers",
-                        line=line_dict_main,
-                        marker=marker_dict_main,
-                        name=path_name
-                    )
+            x=df[x_name],
+            y=df[y_name],
+            z=df[fom_name],
+            hovertemplate=(f"{_gnvn(x_name)}: %{{x}}<br>",
+                           f"{_gnvn(y_name)}: %{{y}}<br>",
+                           f"{_gnvn(fom_name)}: %{{z}}<extra></extra>"),
+            mode="lines+markers",
+            line=line_dict_main,
+            marker=marker_dict_main,
+            name=path_name
+        )
 
     else:
         trajectory = go.Scatter(
             x=df[x_name],
             y=df[y_name],
-            #add also hover info about function values:
+            # add also hover info about function values:
             customdata=df[fom_name],
             hovertemplate=(f"{_gnvn(x_name)}: %{{x}}<br>"
                            f"{_gnvn(y_name)}: %{{y}}<br>"
@@ -301,7 +318,6 @@ def get_simple_optimization_trajectory(df: pd.DataFrame,
     # add first point with special symbol
     # if fom_name in df.columns:
     #     print(f"First point of trajectory: {(df[x_name].iloc[0], df[y_name].iloc[0])} with value {df[fom_name].iloc[0]}")
-
 
     if in_3d:
         trajectory_first = go.Scatter3d(
@@ -324,7 +340,7 @@ def get_simple_optimization_trajectory(df: pd.DataFrame,
     if fom_name in df.columns:
         # add best point with special symbol
         best_point = df.loc[df[fom_name].idxmin()]
-        #print(f"Best point of trajectory: {(best_point[x_name], best_point[y_name])} with value {best_point[fom_name]}")
+        # print(f"Best point of trajectory: {(best_point[x_name], best_point[y_name])} with value {best_point[fom_name]}")
 
         if in_3d:
             trajectory_best = go.Scatter3d(
@@ -349,7 +365,7 @@ def get_simple_optimization_trajectory(df: pd.DataFrame,
 
     else:
         # add best point with special symbol
-        #print("Best point of trajectory: ", (df[x_name].iloc[-1], df[y_name].iloc[-1]))
+        # print("Best point of trajectory: ", (df[x_name].iloc[-1], df[y_name].iloc[-1]))
         if in_3d:
             raise ValueError("In 3D, the fom_name must be present in the dataframe to determine the best point.")
 
@@ -359,30 +375,30 @@ def get_simple_optimization_trajectory(df: pd.DataFrame,
             mode='markers',
             marker=marker_dict_best,
             name=best_name,
-            zorder = 3,
+            zorder=3,
         )
     return trajectory, trajectory_first, trajectory_best
+
 
 def plot_interpolated_heatmap(df: pd.DataFrame,
                               x_name: str,
                               y_name: str,
                               fom_name: str,
-                              bounds_x: Tuple[float, float]=None,
-                              bounds_y: Tuple[float, float]=None,
-                                 heatmap_input=None,
-                                 scatter_input=None,
-                                 add_trajectories=True,
-                                 names_suffix='',
-                                 title='2D heatmap',
-                                 min_value=None,
-                                 max_value=None,
-                                 grid_resolution=1000,
-                                 minimization=True,
-                                 in_3d=False,
+                              bounds_x: Tuple[float, float] = None,
+                              bounds_y: Tuple[float, float] = None,
+                              heatmap_input=None,
+                              scatter_input=None,
+                              add_trajectories=True,
+                              names_suffix='',
+                              title='2D heatmap',
+                              min_value=None,
+                              max_value=None,
+                              grid_resolution=1000,
+                              minimization=True,
+                              in_3d=False,
                               colormap_name='Viridis_r',
-                              skip_heatmap:bool=False,
-                              skip_scatter:bool=False) -> go.Figure:
-
+                              skip_heatmap: bool = False,
+                              skip_scatter: bool = False) -> go.Figure:
     if skip_heatmap and skip_scatter:
         raise ValueError('Both skip_heatmap and skip_scatter are True. Nothing to plot.')
 
@@ -392,32 +408,28 @@ def plot_interpolated_heatmap(df: pd.DataFrame,
         heatmap_input_possible, scatter_input_possible = get_interpolated_heatmap(df,
                                                                                   x_name=x_name,
                                                                                   y_name=y_name,
-                                                                                     fom_name=fom_name,
-                                                                                     bounds_x=bounds_x,
-                                                                                     bounds_y=bounds_y,
-                                                                                     min_value=min_value,
-                                                                                     max_value=max_value,
-                                                                                     grid_resolution=grid_resolution,
+                                                                                  fom_name=fom_name,
+                                                                                  bounds_x=bounds_x,
+                                                                                  bounds_y=bounds_y,
+                                                                                  min_value=min_value,
+                                                                                  max_value=max_value,
+                                                                                  grid_resolution=grid_resolution,
                                                                                   in_3d=in_3d,
                                                                                   colormap_name=colormap_name
-                                                                                     )
+                                                                                  )
         if scatter_input is None:
             scatter_input = scatter_input_possible
         if heatmap_input is None:
             heatmap_input = heatmap_input_possible
-
-
 
     if not skip_heatmap:
         all_data.append(heatmap_input)
     if not skip_scatter:
         all_data.append(scatter_input)
 
-    #all_data = [heatmap_input,scatter_input]
+    # all_data = [heatmap_input,scatter_input]
 
     if add_trajectories:
-
-
         trajectory, trajectory_first, trajectory_last = get_simple_optimization_trajectory(df,
                                                                                            x_name=x_name,
                                                                                            y_name=y_name,
@@ -440,27 +452,25 @@ def plot_interpolated_heatmap(df: pd.DataFrame,
     return fig
 
 
-
 def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
-                          x_name: str,
-                          y_name: str,
-                          fom_name: str,
-                          bounds_x: Tuple[float, float]=None,
-                          bounds_y: Tuple[float, float]=None,
-                          heatmaps_input: List[go.Heatmap] = None,
-                          scatter_inputs: List[go.Scatter] = None,
-                          add_trajectories=True,
-                          titles: List[str] = None,
-                          suffixes: List[str] = None,
-                          global_normalization: bool = True,
-                          colormap_name='Viridis_r',
-                          minimization=True,
+                           x_name: str,
+                           y_name: str,
+                           fom_name: str,
+                           bounds_x: Tuple[float, float] = None,
+                           bounds_y: Tuple[float, float] = None,
+                           heatmaps_input: List[go.Heatmap] = None,
+                           scatter_inputs: List[go.Scatter] = None,
+                           add_trajectories=True,
+                           titles: List[str] = None,
+                           suffixes: List[str] = None,
+                           global_normalization: bool = True,
+                           colormap_name='Viridis_r',
+                           minimization=True,
                            in_3d=False,
                            skip_heatmaps=False,
                            skip_scatters=False) -> go.Figure:
     if skip_heatmaps and skip_scatters:
         raise ValueError('Both skip_heatmaps and skip_scatters are True. Nothing to plot.')
-
 
     if suffixes is None:
         if titles is None:
@@ -477,35 +487,33 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
 
     # Create a subplot figure with 2 rows (one for each figure)
     specs = None
-    number_of_rows = max([1, len(dataframes) // 2])
+
+    number_of_rows = max([1, int(np.ceil(len(dataframes) / 2))])
+
     if in_3d:
         specs = np.full((number_of_rows, 2), {'type': 'surface'}).tolist()
 
     row_height = 600
-
 
     total_height = number_of_rows * row_height
     combined_fig = make_subplots(rows=number_of_rows,
                                  cols=2,
                                  subplot_titles=titles,
                                  specs=specs,
-                                 row_heights=[row_height]*number_of_rows)
+                                 row_heights=[row_height] * number_of_rows)
 
     mins_fom = [df[fom_name].min() for df in dataframes]
     maxs_fom = [df[fom_name].max() for df in dataframes]
     global_min = min(mins_fom)
     global_max = max(maxs_fom)
 
-    len_colorbar = (1/number_of_rows)*0.98
-
+    len_colorbar = (1 / number_of_rows) * 0.98
 
     for index, (df, title, suffix, heatmap, scatter) in enumerate(zip(dataframes,
                                                                       titles,
                                                                       suffixes,
                                                                       heatmaps_input,
                                                                       scatter_inputs)):
-
-
 
         row_index = index // 2 + 1
         col_index = index % 2 + 1
@@ -518,21 +526,21 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
             local_max = maxs_fom[index]
 
         fig = plot_interpolated_heatmap(df=df,
-                                           x_name=x_name,
-                                           y_name=y_name,
-                                           fom_name=fom_name,
-                                           bounds_x=bounds_x,
-                                           bounds_y=bounds_y,
-                                           heatmap_input=heatmap,
-                                           scatter_input=scatter,
-                                           add_trajectories=add_trajectories,
-                                           names_suffix=suffix,
-                                           title=title,
-                                           min_value=local_min,
-                                           max_value=local_max,
-                                           grid_resolution=1000,
-                                           minimization=minimization,
-                                           in_3d=in_3d,
+                                        x_name=x_name,
+                                        y_name=y_name,
+                                        fom_name=fom_name,
+                                        bounds_x=bounds_x,
+                                        bounds_y=bounds_y,
+                                        heatmap_input=heatmap,
+                                        scatter_input=scatter,
+                                        add_trajectories=add_trajectories,
+                                        names_suffix=suffix,
+                                        title=title,
+                                        min_value=local_min,
+                                        max_value=local_max,
+                                        grid_resolution=1000,
+                                        minimization=minimization,
+                                        in_3d=in_3d,
                                         colormap_name=colormap_name,
                                         skip_heatmap=skip_heatmaps,
                                         skip_scatter=skip_scatters)
@@ -544,12 +552,11 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
         else:
             x_colorbrar = 1.0
 
-        #y_colorbar = 1 - (row_index - 0.5) / number_of_rows
+        # y_colorbar = 1 - (row_index - 0.5) / number_of_rows
 
-
-        axis_index = 2*(row_index-1) + col_index
+        axis_index = 2 * (row_index - 1) + col_index
         y_colorbar = None
-        #TODO FBM: figure this out better.
+        # TODO FBM: figure this out better.
         try:
             if axis_index == 1:
                 yaxis_name = 'yaxis'
@@ -562,10 +569,8 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
                 y_colorbar = 0.5 * (domain[0] + domain[1])
 
         except(Exception) as err:
-            #print(err)
+            # print(err)
             pass
-
-
 
         colorbar_dict = dict(x=x_colorbrar, y=y_colorbar, len=len_colorbar, yanchor='middle')
         for trace in fig.data:
@@ -587,7 +592,7 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
             combined_fig.add_trace(trace,
                                    row=row_index,
                                    col=col_index)
-            #add xlabel and ylabel to the axis
+            # add xlabel and ylabel to the axis
             combined_fig.update_xaxes(title_text=_gnvn(x_name), row=row_index, col=col_index)
             combined_fig.update_yaxes(title_text=_gnvn(y_name), row=row_index, col=col_index)
 
@@ -614,29 +619,22 @@ def plot_multiple_heatmaps(dataframes: List[pd.DataFrame],
     return combined_fig
 
 
-
-
-
-
-def get_grid_histogram(df:pd.DataFrame,
-                         x_name:str,
-                         y_name:str,
-                         x_bins: int=None,
-                         y_bins: int=None,
-                         title: str = None,
-                         suffix: str = None,
-                         colormap_name='YlGnBu',
-                         ):
-
-
-
+def get_grid_histogram(df: pd.DataFrame,
+                       x_name: str,
+                       y_name: str,
+                       x_bins: int = None,
+                       y_bins: int = None,
+                       title: str = None,
+                       suffix: str = None,
+                       colormap_name='YlGnBu',
+                       ):
     xs = df[x_name]
     ys = df[y_name]
 
     if x_bins is None:
-        x_bins = xs//10
+        x_bins = xs // 10
     if y_bins is None:
-        y_bins = ys//10
+        y_bins = ys // 10
 
     hovertemplate = (f"{_gnvn(x_name)}: %{{x}}"
                      f"<br>{_gnvn(y_name)}: %{{y}}"
@@ -659,24 +657,25 @@ def get_grid_histogram(df:pd.DataFrame,
     )
     return heatmap
 
-def plot_grid_histogram(df:pd.DataFrame,
-                         x_name:str,
-                         y_name:str,
-                         x_bins: int=None,
-                         y_bins: int=None,
-                         title: str = None,
-                         suffix: str = None,
-                         colormap_name='YlGnBu',
-                         ) -> go.Figure:
+
+def plot_grid_histogram(df: pd.DataFrame,
+                        x_name: str,
+                        y_name: str,
+                        x_bins: int = None,
+                        y_bins: int = None,
+                        title: str = None,
+                        suffix: str = None,
+                        colormap_name='YlGnBu',
+                        ) -> go.Figure:
     heatmap = get_grid_histogram(df,
-                                  x_name=x_name,
-                                  y_name=y_name,
-                                  x_bins=x_bins,
-                                  y_bins=y_bins,
-                                  title=title,
-                                  suffix=suffix,
-                                  colormap_name=colormap_name,
-                                  )
+                                 x_name=x_name,
+                                 y_name=y_name,
+                                 x_bins=x_bins,
+                                 y_bins=y_bins,
+                                 title=title,
+                                 suffix=suffix,
+                                 colormap_name=colormap_name,
+                                 )
 
     fig = go.Figure(data=heatmap)
     fig.update_layout(
@@ -687,23 +686,24 @@ def plot_grid_histogram(df:pd.DataFrame,
     )
     return fig
 
-def plot_analytical_betas(df:pd.DataFrame,
-                          x_name:str,
-                          fom_name:str,
-                          bounds_x:Tuple[float, float]=None,
-                          title:str = None,
-                          names_suffix: str = None)-> go.Figure:
+
+def plot_analytical_betas(df: pd.DataFrame,
+                          x_name: str,
+                          fom_name: str,
+                          bounds_x: Tuple[float, float] = None,
+                          title: str = None,
+                          names_suffix: str = None) -> go.Figure:
     markersize_scatter = 2
     scatter_markers_dict = dict(
-                    color='black',
-                    size=markersize_scatter,
-                    symbol='circle',
-                    line=dict(color="rgba(255, 255, 255, 0.5)", width=1)
-                )
+        color='black',
+        size=markersize_scatter,
+        symbol='circle',
+        line=dict(color="rgba(255, 255, 255, 0.5)", width=1)
+    )
     line_dict = dict(
-            color='black',
-            dash='solid'
-            )
+        color='black',
+        dash='solid'
+    )
     data = go.Scatter(x=df[x_name],
                       y=df[fom_name],
                       mode='lines+markers',
@@ -717,7 +717,7 @@ def plot_analytical_betas(df:pd.DataFrame,
                       xaxis=dict(range=bounds_x),
                       template="plotly")
     return fig
-    
+
 
 
 

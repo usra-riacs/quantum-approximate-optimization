@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import copy
 import time
@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 from tqdm.notebook import tqdm
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 from quapopt.data_analysis.data_handling import LoggingLevel
 from quapopt.data_analysis.data_handling import STANDARD_NAMES_VARIABLES as SNV
@@ -236,6 +237,7 @@ class NDARRunner(ABC):
             return True
 
         dE = energy_current - energy_previous
+
 
         return np.log(rng.uniform(0, 1)) >= dE / temperature
 

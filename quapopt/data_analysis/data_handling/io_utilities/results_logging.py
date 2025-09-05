@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from pathlib import Path
 from typing import List, Optional, Union, Any
@@ -8,20 +8,21 @@ from typing import List, Optional, Union, Any
 import numpy as np
 import pandas as pd
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.data_analysis.data_handling.io_utilities import DEFAULT_STORAGE_DIRECTORY
-from quapopt.data_analysis.data_handling.io_utilities.logging_config import LoggingLevel, ExperimentLoggerConfig
+from quapopt.data_analysis.data_handling.schemas.configurations import LoggingLevel, ExperimentLoggerConfig
 from quapopt.data_analysis.data_handling.io_utilities.metadata_management import ExperimentSetMetadataManager
 from quapopt.data_analysis.data_handling.io_utilities.standardized_io import (ResultsIO)
-from quapopt.data_analysis.data_handling.standard_names import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                                STANDARD_NAMES_VARIABLES as SNV,
-                                                                )
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
+from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
+                                                         STANDARD_NAMES_VARIABLES as SNV,
+                                                         )
+from quapopt.data_analysis.data_handling.schemas.naming import (
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
     DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
 )
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (StandardizedSpecifier,
-                                                                               BaseNameDataType, )
+from quapopt.data_analysis.data_handling.schemas.naming import (StandardizedSpecifier,
+                                                                BaseNameDataType, )
 
 _DATA_TYPES_LOGGING_MINIMAL = [SNDT.VariationalParameters,
                                SNDT.ExpectedValues,
@@ -78,201 +79,7 @@ def verify_whether_to_log_data(logging_level: LoggingLevel,
     return True
 
 
-class ResultsLoggerBase(ResultsIO):
-    """
-    Base class for logging results in a standardized way.
-    It provides methods for writing and reading results to/from files,
-    It offers a lot of flexibility.
-    The file-naming convention is as follows:
-    <table_name_prefix>;<table_name_prefix>;<table_name_prefix>dat=<data_type>.csv
-
-
-
-    """
-
-    def __init__(self,
-                 table_name_prefix: Optional[str] = None,
-                 table_name_suffix: Optional[str] = None,
-                 directory_main: Optional[str | Path] = None,
-                 default_storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY,
-                 table_name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-                 dataframe_type_name_separator: str = DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-                 logging_level: LoggingLevel = LoggingLevel.BASIC,
-                 ):
-        """
-        Initializes the ResultsLoggerBase class.
-
-        The full main path for storing results is
-        <default_storage_directory>/<base_path>/
-
-
-        :param table_name_prefix:
-        :param table_name_suffix:
-        :param directory_main:
-        The main directory where the results will be stored.
-        defaults to empty string
-        :param default_storage_directory:
-        The default storage directory for all data.
-        Defaults to whatever is set in DEFAULT_STORAGE_DIRECTORY.
-
-        :param table_name_parts_separator:
-        The separator to be used between parts of the table name.
-        Helps to differentiate between different parts of the table name.
-        :param dataframe_type_name_separator:
-        The separator to be used between the column name and the data type in the dataframe column names.
-        :param logging_level:
-        The logging level to be used for the results logger.
-        """
-
-        super().__init__(directory_main=directory_main,
-                         table_name_prefix=table_name_prefix,
-                         table_name_suffix=table_name_suffix,
-                         default_storage_directory=default_storage_directory,
-                         table_name_parts_separator=table_name_parts_separator,
-                         dataframe_type_name_separator=dataframe_type_name_separator)
-
-        self._logging_level = logging_level
-        self._files_history = []
-
-    def set_logging_level(self, level):
-        self._logging_level = level
-
-    @property
-    def logging_level(self):
-        return self._logging_level
-
-    @property
-    def files_history(self):
-        return self._files_history
-
-    def write_results(self,
-                      dataframe: Union[pd.DataFrame, np.ndarray],
-                      directory_subpath: Optional[str | Path] = None,
-                      table_name: Optional[str] = None,
-                      table_name_prefix: Optional[str | Path] = None,
-                      table_name_suffix: Optional[str | Path] = None,
-                      data_type: Optional[SNDT] = None,
-                      df_annotations_dict: Optional[dict] = None,
-                      format_type: str = 'dataframe',
-                      ) -> Path:
-        """
-        Writes the results to a file. The file is saved in the directory specified by the directory_subpath
-
-        The full path will be something like:
-        <default_storage_directory>/<base_path>/<directory_subpath>/<directory_datatype>/FullTableName.csv
-
-
-        :param dataframe:
-        Data to be saved
-        :param directory_subpath:
-        The subpath within the main directory where the file will be saved.
-        If None, it will be set to the standard sub-path for the given data type.
-        If provided, we anyway append the standard sub-path for the given data type.
-
-        :param table_name:
-        The name of the table to be saved. If None, it will be set to empty string
-        :param table_name_prefix:
-        The prefix to be added to the table name. If None, it will be set to self.
-        :param table_name_suffix:
-        The suffix to be added to the table name. If None, it will be set to self.
-        :param data_type:
-        The data type of the results to be saved. If None, it will be set to SNDT.Unspecified.
-        :param df_annotations_dict:
-        A dictionary containing additional annotations to be added to the DataFrame.
-        :param as_pickle:
-        If True, the results will be saved as a pickle file. If False, they will be saved as a CSV file.
-        NOTE: this is not recommended, as it may lead to issues with data types and serialization.
-        :param id_logger:
-        The ID of the logger. If None, it will not be added to the annotation dictionary.
-        If provided, it will be added to the annotation dictionary under the key "IDLogger"
-        :param id_logging_session:
-        The ID of the logging session. If None, it will not be added to the annotation dictionary.
-        If provided, it will be added to the annotation dictionary under the key "IDLoggingSession"
-
-
-        :return:
-        """
-
-        if directory_subpath is None:
-            directory_subpath = Path()
-
-        directory_subpath = Path(directory_subpath)
-
-        id_key = SNV.ID.id_long
-        if df_annotations_dict is None:
-            df_annotations_dict = {}
-
-        # TODO FBM: think about it. Maybe it is better to save as pickle if the data type is unspecified
-        if data_type is None:
-            format_type = 'pickle'
-
-        file_path = super().write_results(dataframe=dataframe,
-                                          directory_subpath=directory_subpath,
-                                          table_name=table_name,
-                                          table_name_prefix=table_name_prefix,
-                                          table_name_suffix=table_name_suffix,
-                                          data_type=data_type,
-                                          df_annotations_dict=df_annotations_dict,
-                                          format_type=format_type)
-
-        self._files_history.append((data_type, file_path))
-
-        return file_path
-
-    def read_results(self,
-                     directory_subpath: Optional[str | Path] = None,
-                     table_name: Optional[str] = None,
-                     table_name_prefix: Optional[str | Path] = None,
-                     table_name_suffix: Optional[str | Path] = None,
-                     data_type: SNDT = None,
-                     df_annotation: dict = None,
-                     format_type: str = 'dataframe',
-                     excluded_trials=None,
-                     number_of_threads=1,
-                     return_none_if_not_found: bool = False, ):
-        """
-        Reads the results from a file. The file is read from the directory specified by the directory_subpath.
-
-        The full path will be something like:
-        <default_storage_directory>/<base_path>/<directory_subpath>/<directory_datatype>/FullTableName.csv
-
-
-
-
-        :param directory_subpath:
-        :param table_name:
-        :param table_name_prefix:
-        :param table_name_suffix:
-        :param data_type:
-        :param df_annotation:
-        :param as_pickle:
-        :param excluded_trials:
-        :param number_of_threads:
-        :param return_none_if_not_found:
-        :return:
-        """
-
-        if directory_subpath is None:
-            directory_subpath = Path()
-
-        directory_subpath = Path(directory_subpath)
-
-        # if data_type is not None:
-        # directory_subpath = directory_subpath / self.get_standard_sub_path_of_data_type(data_type=data_type)
-
-        return super().read_results(directory_subpath=directory_subpath,
-                                    table_name=table_name,
-                                    table_name_prefix=table_name_prefix,
-                                    table_name_suffix=table_name_suffix,
-                                    data_type=data_type,
-                                    df_annotations_dict=df_annotation,
-                                    format_type=format_type,
-                                    excluded_trials=excluded_trials,
-                                    number_of_threads=number_of_threads,
-                                    return_none_if_not_found=return_none_if_not_found)
-
-
-class ResultsLogger(ResultsLoggerBase):
+class ResultsLogger(ResultsIO):
     def __init__(self,
                  experiment_set_name: Optional[str] = None,
                  experiment_instance_id: Optional[str] = None,
@@ -309,6 +116,7 @@ class ResultsLogger(ResultsLoggerBase):
                                             table_name_suffix=table_name_suffix,
                                             directory_main=directory_main,
                                             logging_level=logging_level)
+        self.config = config
 
         experiment_folders_hierarchy = config.experiment_folders_hierarchy
         experiment_specifier = config.experiment_specifier
@@ -339,8 +147,11 @@ class ResultsLogger(ResultsLoggerBase):
                          directory_main=directory_main,
                          default_storage_directory=DEFAULT_STORAGE_DIRECTORY,
                          table_name_parts_separator=DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-                         dataframe_type_name_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-                         logging_level=logging_level)
+                         dataframe_type_name_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR)
+
+        # Merged functionality from ResultsLoggerBase
+        self._logging_level = logging_level
+        self._files_history = []
 
         metadata_manager = ExperimentSetMetadataManager.from_name_and_id(experiment_set_name=experiment_set_name,
                                                                          experiment_set_id=experiment_set_id,
@@ -363,6 +174,20 @@ class ResultsLogger(ResultsLoggerBase):
                                                        write_to_tracking=True)
 
         # self.config = config
+
+    def set_logging_level(self, level):
+        """Set the logging level for the results logger."""
+        self._logging_level = level
+
+    @property
+    def logging_level(self):
+        """Get the current logging level."""
+        return self._logging_level
+
+    @property
+    def files_history(self):
+        """Get the history of files written by this logger."""
+        return self._files_history
 
     def __repr__(self):
         return (f"ResultsLogger\n"
@@ -420,6 +245,12 @@ class ResultsLogger(ResultsLoggerBase):
     @property
     def table_name_prefix(self):
         return self._table_name_prefix
+
+    @table_name_prefix.setter
+    def table_name_prefix(self, value: str):
+        if not isinstance(value, str):
+            raise TypeError("table_name_prefix must be a string")
+        self._table_name_prefix = value
 
     @property
     def experiment_instance_id(self):
@@ -482,17 +313,134 @@ class ResultsLogger(ResultsLoggerBase):
     def read_experiment_set_tracking(self):
         return self.metadata_manager.read_set_tracking()
 
-    def read_shared_metadata(self,
-                             data_type: SNDT):
-        return self.metadata_manager.read_shared_metadata(metadata_data_type=data_type)
+    def _read_shared_metadata(self,
+                              data_type: SNDT,
+                              table_name_prefix: Optional[str] = None,
+                              table_name_suffix: Optional[str] = None
+                              ):
+        return self.metadata_manager.read_shared_metadata(metadata_data_type=data_type,
+                                                          table_name_prefix=table_name_prefix,
+                                                          table_name_suffix=table_name_suffix, )
 
-    def write_shared_metadata(self,
-                              metadata_data_type: SNDT,
-                              shared_metadata: Any,
-                              overwrite_existing: bool = False) -> Path:
+    def _write_shared_metadata(self,
+                               metadata_data_type: SNDT,
+                               shared_metadata: Any,
+                               overwrite_existing: bool = False,
+                               table_name_prefix: Optional[str] = None,
+                               table_name_suffix: Optional[str] = None
+                               ) -> Path:
         return self.metadata_manager.write_shared_metadata(metadata_data_type=metadata_data_type,
                                                            shared_metadata=shared_metadata,
-                                                           overwrite_existing=overwrite_existing)
+                                                           overwrite_existing=overwrite_existing,
+                                                           table_name_prefix=table_name_prefix,
+                                                           table_name_suffix=table_name_suffix, )
+
+    def write_metadata(self,
+                       metadata: Any,
+                       shared_across_experiment_set: bool,
+                       data_type: BaseNameDataType = None,
+                       overwrite_existing_non_csv: bool = False,
+                       table_name_prefix: Optional[str] = None,
+                       table_name_suffix: Optional[str] = None,
+                       annotate_with_experiment_metadata: bool = False,
+                       additional_annotation_dict: Optional[dict] = None,
+                       ignore_logging_level: bool = False,
+                       append_experiment_set_suffix: bool = True,
+                       ) -> Optional[Path]:
+        """
+        Write metadata either as shared (experiment set level) or instance-specific metadata.
+
+        :param metadata: The metadata to write (DataFrame, dict, or other serializable object)
+        :param data_type: The data type for categorizing the metadata
+        :param shared_across_experiment_set: If True, writes as shared metadata at experiment set level.
+                                            If False, writes as instance-specific metadata.
+        :param overwrite_existing: For shared metadata, whether to overwrite existing files
+        :param table_name_prefix: Optional prefix for the table name
+        :param table_name_suffix: Optional suffix for the table name
+        :param annotate_with_experiment_metadata: For instance metadata, whether to annotate with experiment metadata
+        :param additional_annotation_dict: Additional annotations to add
+        :param ignore_logging_level: Whether to ignore the logging level check
+        :param append_experiment_set_suffix: Whether to append experiment set suffix to table name
+        :return: Path to the written file, or None if not written
+        """
+        if data_type is None:
+            data_type = SNDT.Unspecified
+
+        if shared_across_experiment_set:
+            # Write as shared metadata at experiment set level
+            return self._write_shared_metadata(
+                metadata_data_type=data_type,
+                shared_metadata=metadata,
+                overwrite_existing=overwrite_existing_non_csv,
+                table_name_prefix=table_name_prefix,
+                table_name_suffix=table_name_suffix)
+        else:
+            return self.write_results(
+                dataframe=metadata,
+                data_type=data_type,
+                table_name_prefix=table_name_prefix,
+                table_name_suffix=table_name_suffix,
+                annotate_with_experiment_metadata=annotate_with_experiment_metadata,
+                additional_annotation_dict=additional_annotation_dict,
+                ignore_logging_level=ignore_logging_level,
+                append_experiment_set_suffix=append_experiment_set_suffix,
+                overwrite_existing_non_csv=overwrite_existing_non_csv
+            )
+
+
+    def read_metadata(self,
+                      shared_across_experiment_set: bool,
+                      data_type: BaseNameDataType = None,
+                      table_name_prefix: Optional[str] = None,
+                      table_name_suffix: Optional[str] = None,
+                      experiment_instance_ids: Optional[List[str]] = None,
+                      annotate_with_experiment_metadata: bool = False,
+                      additional_annotation_dict: Optional[dict] = None,
+                      format_type: str = 'dataframe',
+                      return_none_if_not_found: bool = False,
+                      filter_by_experiment_set: bool = True,
+                      append_experiment_set_suffix: bool = True) -> Any:
+        """
+        Read metadata either as shared (experiment set level) or instance-specific metadata.
+
+        :param data_type: The data type for categorizing the metadata
+        :param shared_across_experiment_set: If True, reads shared metadata at experiment set level.
+                                            If False, reads instance-specific metadata.
+        :param table_name_prefix: Optional prefix for the table name
+        :param table_name_suffix: Optional suffix for the table name
+        :param experiment_instance_ids: For instance metadata, specific instance IDs to read
+        :param annotate_with_experiment_metadata: For instance metadata, whether to annotate with experiment metadata
+        :param additional_annotation_dict: Additional annotations to filter by
+        :param format_type: Format type for reading ('dataframe' or other)
+        :param return_none_if_not_found: Whether to return None if file not found
+        :param filter_by_experiment_set: Whether to filter by experiment set
+        :param append_experiment_set_suffix: Whether to append experiment set suffix to table name
+        :return: The read metadata
+        """
+        if data_type is None:
+            data_type = SNDT.Unspecified
+
+        if shared_across_experiment_set:
+            # Read as shared metadata at experiment set level
+            return self._read_shared_metadata(
+                data_type=data_type,
+                table_name_prefix=table_name_prefix,
+                table_name_suffix=table_name_suffix
+            )
+        else:
+            # Read as instance-specific metadata using read_results
+            return self.read_results(
+                data_type=data_type,
+                table_name_prefix=table_name_prefix,
+                table_name_suffix=table_name_suffix,
+                experiment_instance_ids=experiment_instance_ids,
+                annotate_with_experiment_metadata=annotate_with_experiment_metadata,
+                additional_annotation_dict=additional_annotation_dict,
+                format_type=format_type,
+                return_none_if_not_found=return_none_if_not_found,
+                filter_by_experiment_set=filter_by_experiment_set,
+                append_experiment_set_suffix=append_experiment_set_suffix
+            )
 
     def get_dataframe_annotation(self) -> dict:
 
@@ -535,18 +483,20 @@ class ResultsLogger(ResultsLoggerBase):
                       ignore_logging_level=False,
                       table_name_prefix: Optional[str] = None,
                       table_name_suffix: Optional[str] = None,
+                      append_experiment_set_suffix:bool=True,
+                      overwrite_existing_non_csv:bool=False,
                       ):
         """
         Writes the results to a file. The file is saved in the directory specified by the directory_subpath.
         :param dataframe:
         :param data_type:
         :param directory_subpath:
-        :param annotate_with_ids:
         :param annotate_with_experiment_metadata:
         :param additional_annotation_dict:
         :param ignore_logging_level:
         :param table_name_prefix:
         :param table_name_suffix:
+        :param append_experiment_set_suffix
         :return:
         """
 
@@ -574,15 +524,35 @@ class ResultsLogger(ResultsLoggerBase):
         annotations_dict = self._create_annotations_dict(annotate_with_ids=True,
                                                          annotate_with_experiment_metadata=annotate_with_experiment_metadata,
                                                          additional_annotation_dict=additional_annotation_dict)
+        combined_suffix = table_name_suffix
+        if append_experiment_set_suffix:
+            # Add experiment_set_id as suffix right before data type
+            experiment_set_suffix = self.metadata_manager.get_experiment_set_suffix()  # This creates "ExperimentSetName=value" format
+            if combined_suffix:
+                combined_suffix = self.join_table_name_parts([combined_suffix, experiment_set_suffix])
+            else:
+                combined_suffix = experiment_set_suffix
 
-        return super().write_results(dataframe=dataframe,
-                                     table_name=table_name,
-                                     directory_subpath=directory_subpath,
-                                     table_name_prefix=table_name_prefix,
-                                     table_name_suffix=table_name_suffix,
-                                     data_type=data_type,
-                                     df_annotations_dict=annotations_dict,
-                                     format_type='dataframe')
+
+        if isinstance(dataframe,pd.DataFrame):
+            format_type = 'dataframe'
+        else:
+            format_type = 'json'
+
+        file_path = super().write_results(dataframe=dataframe,
+                                          table_name=table_name,
+                                          directory_subpath=directory_subpath,
+                                          table_name_prefix=table_name_prefix,
+                                          table_name_suffix=combined_suffix,
+                                          data_type=data_type,
+                                          df_annotations_dict=annotations_dict,
+                                          format_type=format_type,
+                                          overwrite_existing_non_csv=overwrite_existing_non_csv)
+
+        # Track file history (merged from ResultsLoggerBase)
+        self._files_history.append((data_type, file_path))
+
+        return file_path
 
     def read_results(self,
                      table_name: Optional[str] = None,
@@ -598,16 +568,17 @@ class ResultsLogger(ResultsLoggerBase):
                      return_none_if_not_found: bool = False,
                      table_name_prefix: Optional[str | Path] = None,
                      table_name_suffix: Optional[str | Path] = None,
+                     full_absolute_path_to_the_file: Optional[str] = None,
+                     filter_by_experiment_set: bool = True,
+                     append_experiment_set_suffix:bool=True
                      ):
         """
         Reads the results from a file. The file is read from the directory specified by the directory_subpath.
         :param table_name:
         :param data_type:
         :param directory_subpath:
-        :param annotate_with_ids:
         :param annotate_with_experiment_metadata:
         :param additional_annotation_dict:
-        :param as_pickle:
         :param excluded_trials:
         :param number_of_threads:
         :param return_none_if_not_found:
@@ -616,57 +587,251 @@ class ResultsLogger(ResultsLoggerBase):
         :return:
         """
 
+        if full_absolute_path_to_the_file is not None:
+            # If a full path is provided, we read directly from that path
+            df_read = super().read_results(full_absolute_path_to_the_file=full_absolute_path_to_the_file,
+                                           return_none_if_not_found=return_none_if_not_found)
+
+
+
+        else:
+            if directory_subpath is None:
+                directory_subpath = Path()
+
+            directory_subpath = Path(directory_subpath) / self.get_subpath_of_data_type(data_type=data_type)
+
+            annotations_dict = self._create_annotations_dict(annotate_with_ids=False,
+                                                             annotate_with_experiment_metadata=annotate_with_experiment_metadata,
+                                                             additional_annotation_dict=additional_annotation_dict)
+
+            if table_name_prefix is None:
+                table_name_prefix = self.table_name_prefix
+            if table_name_suffix is None:
+                table_name_suffix = self.table_name_suffix
+                
+            combined_suffix = table_name_suffix
+            if append_experiment_set_suffix:
+                # Add experiment_set_id as suffix right before data type
+                experiment_set_suffix = self.metadata_manager.get_experiment_set_suffix()  # This creates "ExperimentSetName=value" format
+                if combined_suffix:
+                    combined_suffix = self.join_table_name_parts([combined_suffix, experiment_set_suffix])
+                else:
+                    combined_suffix = experiment_set_suffix
+
+            df_read = super().read_results(directory_subpath=directory_subpath,
+                                           table_name=table_name,
+                                           table_name_prefix=table_name_prefix,
+                                           table_name_suffix=combined_suffix,
+                                           data_type=data_type,
+                                           df_annotations_dict=annotations_dict,
+                                           format_type=format_type,
+                                           excluded_trials=excluded_trials,
+                                           number_of_threads=number_of_threads,
+                                           return_none_if_not_found=return_none_if_not_found,
+                                           )
+
+        if df_read is None or df_read.empty:
+            if return_none_if_not_found:
+                return None
+            else:
+                raise ValueError(f"No data found for data type {data_type} with table name {table_name} "
+                                 f"in directory {directory_subpath}.")
+
+        df_read[SNV.ExperimentInstanceID.id_long] = df_read[SNV.ExperimentInstanceID.id_long].astype(str)
+
+        # Determine which experiment instance IDs to include
+        valid_experiment_instance_ids = None
+        if filter_by_experiment_set:
+            tracking_data = self.read_experiment_set_tracking()
+            if tracking_data is None or tracking_data.empty:
+                error_msg = (f"ExperimentSetTracking data is empty or missing for experiment set "
+                             f"'{self.experiment_set_name}' (ID: {self.experiment_set_id}). "
+                             f"Cannot filter by experiment set without tracking data.")
+                if return_none_if_not_found:
+                    return None
+                else:
+                    raise ValueError(error_msg)
+
+            # Extract experiment instance IDs from tracking data
+            valid_experiment_instance_ids = set(tracking_data[SNV.ExperimentInstanceID.id_long].tolist())
+
+        # If user provided specific experiment_instance_ids, intersect with valid ones
+        if experiment_instance_ids is not None:
+            if valid_experiment_instance_ids is not None:
+                # Filter user-provided IDs to only include valid ones
+                valid_experiment_instance_ids = valid_experiment_instance_ids.intersection(set(experiment_instance_ids))
+            else:
+                # No experiment set filtering, use user-provided IDs directly
+                valid_experiment_instance_ids = set(experiment_instance_ids)
+
+        # Apply filtering if we have valid experiment instance IDs
+        if valid_experiment_instance_ids is not None:
+            df_read = df_read[df_read[SNV.ExperimentInstanceID.id_long].isin(valid_experiment_instance_ids)]
+
+        if df_read.empty:
+            if return_none_if_not_found:
+                return None
+            else:
+                raise ValueError(f"No data found for experiment instance ID {valid_experiment_instance_ids} in "
+                                 f"data type {data_type} with table name {table_name}.")
+
+        return df_read
+
+    def gather_results(self,
+                       data_type: SNDT,
+                       table_name_prefix: Optional[str] = None,
+                       table_name_suffix: Optional[str] = None,
+                       directory_subpath: Optional[str | Path] = None,
+                       return_none_if_not_found: bool = False,
+                       experiment_instance_ids: Optional[List[str]] = None,
+                       filter_by_experiment_set: bool = True) -> Optional[pd.DataFrame]:
+        """
+        Gather and merge all pandas DataFrames of a specified data type from the storage directory.
+
+        This method scans the data type directory, detects all CSV files matching the data type,
+        reads them as pandas DataFrames, and concatenates them into a single merged DataFrame.
+        Only supports pandas DataFrames stored as CSV files.
+
+        By default, this method filters results to only include experiment instances that belong
+        to the current experiment set (as determined by ExperimentSetTracking data). This ensures
+        data integrity and prevents mixing results from different experiment sets.
+
+        The merged DataFrame will include two additional columns:
+        - 'SourceFileName': The name of the source file (e.g., 'results.csv')
+        - 'SourceFilePath': The full absolute path to the source file
+
+        :param data_type: The data type to gather (e.g., SNDT.VariationalParameters)
+        :param table_name_prefix: Optional prefix filter for table names, defaults to self.table_name_prefix
+        :param table_name_suffix: Optional suffix filter for table names, defaults to self.table_name_suffix
+        :param directory_subpath: Optional subdirectory within data type folder
+        :param return_none_if_not_found: If True, return None if no files found; if False, raise ValueError
+        :param experiment_instance_ids: Optional list of specific experiment instance IDs to include.
+                                       If provided, only these IDs will be gathered (intersected with
+                                       experiment set IDs if filter_by_experiment_set=True)
+        :param filter_by_experiment_set: If True (default), only gather results belonging to the current
+                                        experiment set. If False, gather all files regardless of experiment set
+        :return: Concatenated DataFrame or None if no files found and return_none_if_not_found=True
+        :raises ValueError: If no files found and return_none_if_not_found=False, or if ExperimentSetTracking
+                           data is missing when filter_by_experiment_set=True
+        :raises TypeError: If attempting to gather non-DataFrame data (pickle files)
+        """
+
+        if data_type is None:
+            data_type = SNDT.Unspecified
+
+        # Construct the full directory path for this data type
         if directory_subpath is None:
             directory_subpath = Path()
+        directory_subpath = Path(directory_subpath)
 
-        directory_subpath = Path(directory_subpath) / self.get_subpath_of_data_type(data_type=data_type)
+        data_type_subpath = self.get_subpath_of_data_type(data_type=data_type)
+        full_directory = self.base_path / directory_subpath / data_type_subpath
 
-        annotations_dict = self._create_annotations_dict(annotate_with_ids=False,
-                                                         annotate_with_experiment_metadata=annotate_with_experiment_metadata,
-                                                         additional_annotation_dict=additional_annotation_dict)
+        if not full_directory.exists():
+            if return_none_if_not_found:
+                return None
+            else:
+                raise ValueError(f"Directory not found: {full_directory}")
 
         if table_name_prefix is None:
             table_name_prefix = self.table_name_prefix
         if table_name_suffix is None:
             table_name_suffix = self.table_name_suffix
 
-        df_read = super().read_results(directory_subpath=directory_subpath,
-                                       table_name=table_name,
-                                       table_name_prefix=table_name_prefix,
-                                       table_name_suffix=table_name_suffix,
-                                       data_type=data_type,
-                                       df_annotation=annotations_dict,
-                                       format_type=format_type,
-                                       excluded_trials=excluded_trials,
-                                       number_of_threads=number_of_threads,
-                                       return_none_if_not_found=return_none_if_not_found)
+        # Get data type suffix for file detection
+        data_type_suffix = self.get_data_type_suffix(data_type=data_type)
 
-        if df_read is None:
+        # Find all CSV files in the directory that match the data type
+        csv_files = []
+        for file_path in full_directory.glob("*.csv"):
+            file_stem = file_path.stem
+
+            # Parse the file name to check if it matches our data type
+            try:
+                parsed_parts = self.parse_table_name(full_table_name=file_stem,
+                                                     name_parts_separator=self._tnps)
+                #print(parsed_parts)
+
+
+                # Check if the file has the correct data type suffix
+                if data_type_suffix in parsed_parts:
+                    # Apply prefix/suffix filters if provided
+                    matches_filters = True
+                    if table_name_prefix is not None and table_name_prefix != '':
+                        if table_name_prefix not in parsed_parts:
+                            matches_filters = False
+
+                    if table_name_suffix is not None and table_name_suffix!= '':
+                        if table_name_suffix not in parsed_parts:
+                            matches_filters = False
+
+                    if matches_filters:
+                        csv_files.append(file_path)
+
+            except Exception as e:
+                # Skip files that don't follow the naming convention
+                continue
+
+        if not csv_files:
             if return_none_if_not_found:
                 return None
             else:
-                raise ValueError(f"No data found for data type {data_type} with table name {table_name}.")
+                raise ValueError(f"No CSV files found for data type {data_type.id_long} in {full_directory}")
 
-        df_read[SNV.ExperimentInstanceID.id_long] = df_read[SNV.ExperimentInstanceID.id_long].astype(str)
+        # Read and concatenate all DataFrames
+        dataframes = []
+        failed_files = []
 
-        if experiment_instance_ids is None:
-            experiment_instance_ids = [self.experiment_instance_id]
+        for file_path in csv_files:
+            try:
+                # Use read_results method with filtering parameters passed through
+                df = self.read_results(full_absolute_path_to_the_file=file_path,
+                                       return_none_if_not_found=True,
+                                       experiment_instance_ids=experiment_instance_ids,
+                                       filter_by_experiment_set=filter_by_experiment_set,
+                                       )
 
-        df_read = df_read[df_read[SNV.ExperimentInstanceID.id_long].isin(experiment_instance_ids)]
-        if df_read.empty:
+                if df is not None and not df.empty:
+                    # Add metadata about source file
+                    df['SourceFileName'] = file_path.name
+                    df['SourceFilePath'] = str(file_path)
+                    dataframes.append(df)
+
+            except Exception as e:
+                failed_files.append((file_path.name, str(e)))
+                continue
+
+        if failed_files and len(dataframes) == 0:
+            error_msg = f"Failed to read all files for data type {data_type.id_long}. Errors: {failed_files}"
             if return_none_if_not_found:
                 return None
             else:
-                raise ValueError(f"No data found for experiment instance ID {experiment_instance_ids} in "
-                                 f"data type {data_type} with table name {table_name}.")
+                raise ValueError(error_msg)
 
-        return df_read
+        if not dataframes:
+            if return_none_if_not_found:
+                return None
+            else:
+                raise ValueError(f"No valid DataFrames found for data type {data_type.id_long}")
+
+        # Concatenate all DataFrames
+        try:
+            merged_df = pd.concat(dataframes, ignore_index=True, sort=False)
+            return merged_df
+
+        except Exception as e:
+            error_msg = (f"Failed to concatenate DataFrames for data type {data_type.id_long}. "
+                         f"This may be due to incompatible column structures. Error: {str(e)}")
+            if return_none_if_not_found:
+                return None
+            else:
+                raise ValueError(error_msg)
 
 
 if __name__ == '__main__':
     # Example usage
-    logger = ResultsLogger(experiment_set_name="TestExperiment2",
-                           experiment_set_id="12345",
+    logger = ResultsLogger(experiment_set_name="TestExperiment1",
+                           experiment_set_id="123456",
                            experiment_instance_id="67890v1",
                            directory_main="test_results/",
                            logging_level=LoggingLevel.BASIC)
@@ -681,16 +846,16 @@ if __name__ == '__main__':
                          table_name="TestTable",
                          data_type=SNDT.Unspecified)
 
-    logger.write_shared_metadata(metadata_data_type=SNDT.Unspecified,
-                                 shared_metadata=some_set_metadata,
-                                 overwrite_existing=True
-                                 )
+    logger._write_shared_metadata(metadata_data_type=SNDT.Unspecified,
+                                  shared_metadata=some_set_metadata,
+                                  overwrite_existing=True
+                                  )
 
     read_df = logger.read_results(data_type=SNDT.Unspecified,
                                   table_name="TestTable",
                                   experiment_instance_ids=["67890v1", "67890v2", "67890v3"])
 
-    read_metadata = logger.read_shared_metadata(data_type=SNDT.Unspecified)
+    read_metadata = logger._read_shared_metadata(data_type=SNDT.Unspecified)
 
     read_tracking = logger.read_experiment_set_tracking()
 
@@ -706,18 +871,31 @@ if __name__ == '__main__':
                                experiment_instance_id="67890v4",
                                directory_main="test_results/",
                                logging_level=LoggingLevel.BASIC)
-    logger2.write_results(dataframe=df,
+
+    some_set_metadata2 = {'maybe_adding_this': np.array(['hehe', 'haha', 'hoho']),
+                          'and_that': 42,
+                          'pi': 3.14159,
+                          'is_fun': True, }
+
+    df2 = pd.DataFrame({"c": [7, 8, 9], "d": [10, 11, 12]})
+    logger2._write_shared_metadata(metadata_data_type=SNDT.Unspecified,
+                                   shared_metadata=some_set_metadata2,
+                                   overwrite_existing=True
+                                   )
+
+    logger2.write_results(dataframe=df2,
                           data_type=SNDT.Unspecified,
                           table_name="TestTable")
     read_df2 = logger2.read_results(data_type=SNDT.Unspecified,
                                     table_name="TestTable",
-                                    experiment_instance_ids=["67890v1", "67890v2", "67890v3", "67890v4"])
+                                    experiment_instance_ids=["67890v1", "67890v2", "67890v3", "67890v4"],
+                                    )
 
-    read_tracking2 = logger.read_experiment_set_tracking()
+    read_tracking2 = logger2.read_experiment_set_tracking()
     print("Read Tracking from logger2:")
     print(read_tracking2)
     print("Read Metadata from logger2:")
-    read_metadata2 = logger2.read_shared_metadata(data_type=SNDT.Unspecified)
+    read_metadata2 = logger2._read_shared_metadata(data_type=SNDT.Unspecified)
     print(read_metadata2)
     print("Read DataFrame from logger2:")
     print(read_df2)

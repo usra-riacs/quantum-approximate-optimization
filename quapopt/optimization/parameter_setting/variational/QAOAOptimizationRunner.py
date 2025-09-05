@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from typing import Union
 
@@ -9,7 +9,7 @@ import optuna
 import pandas as pd
 #TODO(FBM): wrap optuna samplers
 from optuna.samplers import BaseSampler as BaseSamplerOptuna
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from quapopt.circuits.noise.simulation.ClassicalMeasurementNoiseSampler import ClassicalMeasurementNoiseSampler
 from quapopt.meta_algorithms.QRR import QRR_functions as qrr_fun
@@ -239,7 +239,7 @@ class QAOAOptimizationRunner:
 
 
         else:
-            # TODO(FBM): add pytorch and tensorflow optimizers
+            # TODO(FBM): add pytorch_implementation and tensorflow optimizers
             raise ValueError("Unknown optimizer type.")
 
         return self._qaoa_runner.get_best_results(), optimizer_res

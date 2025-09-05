@@ -1,79 +1,21 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
-import csv
+
 import os
-import pickle
-import time
 import uuid
 from pathlib import Path
-from typing import Optional, Callable, List, Tuple, Union, Any, Dict
+from typing import Optional, List, Union, Any
 
 import numpy as np
 import pandas as pd
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
-    MAIN_KEY_VALUE_SEPARATOR,
+from quapopt.data_analysis.data_handling.io_utilities import IOMixin, DEFAULT_STORAGE_DIRECTORY, add_file_format_suffix
+from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
+                                                         )
+from quapopt.data_analysis.data_handling.schemas.naming import (
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
     DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
 )
-from quapopt.data_analysis.data_handling.io_utilities import IOMixin, DEFAULT_STORAGE_DIRECTORY, add_file_format_suffix
-from quapopt.data_analysis.data_handling.standard_names import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                                STANDARD_NAMES_VARIABLES as SNV,
-
-                                                                )
-
-from quapopt.additional_packages.ancillary_functions_usra.ancillary_functions import df_column_apply_function_parallelized
-# from quapopt.data_analysis.data_handling.io_utilities.data_encoding_decoding import (
-#     eval_string_tuple_to_tuple,
-#     eval_string_float_tuple_to_int_tuple)
-
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
-    MAIN_KEY_SEPARATOR as MKS,
-    MAIN_KEY_VALUE_SEPARATOR as MKVS
-)
-
-#
-# def verify_whether_to_add_key_separator_suffix(table_name_so_far: str,
-#                                                key_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
-#     """
-#     Verify whether to add a key separator suffix to the table name.
-#     There are two situations when we do not add a key separator suffix:
-#     1. If the table name is empty.
-#     2. If the table name ends with a key separator already.
-#     :param table_name_so_far:
-#     :return:
-#     """
-#
-#     if table_name_so_far == '':
-#         return False
-#     if table_name_so_far[-1] == key_separator:
-#         return False
-#     return True
-
-#
-# def attempt_to_create_folder(folder_path: str | Path,
-#                              delete_if_exists=False) -> None:
-#     """
-#     Create a folder at the specified path if it does not exist.
-#     If the folder already exists and `overwrite` is set to True, it will remove the existing folder and create a new one.
-#     :param folder_path:
-#     :param delete_if_exists:
-#     :return:
-#     """
-#
-#     folder_path = Path(folder_path)
-#     folder_path.mkdir(parents=True, exist_ok=True)
-#     if delete_if_exists:
-#         try:
-#             folder_path.rmdir()
-#             folder_path.mkdir(parents=True, exist_ok=True)
-#         except(Exception) as e:
-#             print("Attention:", f"Directory '{folder_path}' could not be created due to an error: {e}")
-#
-
-
 
 
 class ResultsIO(IOMixin):
@@ -134,7 +76,6 @@ class ResultsIO(IOMixin):
         """
         super().__init__()
 
-
         self._base_path = self.construct_base_path(directory_main=directory_main,
                                                    default_storage_directory=default_storage_directory)
         self._table_name_prefix = table_name_prefix
@@ -174,12 +115,11 @@ class ResultsIO(IOMixin):
     def table_name_suffix(self, table_name_suffix: Optional[str]):
         self._table_name_suffix = table_name_suffix
 
-
     def get_full_table_name(self,
-            table_name: Optional[str],
-            table_name_prefix: Optional[str] = None,
-            table_name_suffix: Optional[str] = None,
-            data_type: Optional[SNDT] = None):
+                            table_name: Optional[str],
+                            table_name_prefix: Optional[str] = None,
+                            table_name_suffix: Optional[str] = None,
+                            data_type: Optional[SNDT] = None):
         """
         Full table name should look like this:
 
@@ -201,7 +141,6 @@ class ResultsIO(IOMixin):
                                            data_type=data_type,
                                            name_parts_separator=self._tnps)
 
-
     def get_cleaned_table_name(self,
                                table_name: str,
                                data_type: Optional[SNDT] = None,
@@ -209,7 +148,7 @@ class ResultsIO(IOMixin):
                                remove_suffix=True,
                                remove_data_type_suffix=True,
                                remove_file_type_suffix=True,
-                               ensure_consistency_with_class_instance=True,):
+                               ensure_consistency_with_class_instance=True, ):
         """
         Get the cleaned table name based on the current settings.
         The full table name looks something like:
@@ -232,34 +171,31 @@ class ResultsIO(IOMixin):
         :return:
         """
 
-
         table_name, _original_file_type_suffix = self.parse_file_type_suffix(file_name=table_name)
 
-
         parsed_table_name = self.parse_table_name(full_table_name=table_name,
-                                                    name_parts_separator=self._tnps)
+                                                  name_parts_separator=self._tnps)
         _expected_prefix = self.table_name_prefix
         _expected_suffix = self.table_name_suffix
         _expected_dt_suffix = self.get_data_type_suffix(data_type=data_type)
 
-        cleaned_parts:List[str] = []
+        cleaned_parts: List[str] = []
 
         idx = 0
 
         if _expected_prefix is not None:
             prefix = parsed_table_name[idx]
-            if ensure_consistency_with_class_instance and prefix!=_expected_prefix:
+            if ensure_consistency_with_class_instance and prefix != _expected_prefix:
                 raise ValueError(f"Expected prefix '{_expected_prefix}' "
                                  f"but got '{prefix}'")
 
             if not remove_prefix:
                 cleaned_parts.append(prefix)
-            idx+=1
+            idx += 1
 
         main_name = parsed_table_name[idx]
         cleaned_parts.append(main_name)
-        idx+=1
-
+        idx += 1
 
         if _expected_suffix is not None:
             suffix = parsed_table_name[idx]
@@ -268,10 +204,9 @@ class ResultsIO(IOMixin):
                 raise ValueError(f"Expected suffix '{_expected_suffix}' "
                                  f"but got '{suffix}'")
 
-
             if not remove_suffix:
                 cleaned_parts.append(suffix)
-            idx+=1
+            idx += 1
 
         if _expected_dt_suffix is not None:
             dt_suffix = parsed_table_name[idx]
@@ -282,18 +217,15 @@ class ResultsIO(IOMixin):
 
             if not remove_data_type_suffix:
                 cleaned_parts.append(dt_suffix)
-            idx+=1
+            idx += 1
 
         cleaned_name = self._tnps.join(cleaned_parts)
 
         if not remove_file_type_suffix:
-            #from . import add_file_format_suffix
+            # from . import add_file_format_suffix
             cleaned_name = str(add_file_format_suffix(string=cleaned_name, suffix=_original_file_type_suffix))
 
-
         return cleaned_name
-
-
 
     def get_full_file_name_table(self,
                                  table_name: Optional[str],
@@ -322,9 +254,9 @@ class ResultsIO(IOMixin):
             table_name_suffix = self.table_name_suffix
 
         return self.get_full_table_name(table_name_prefix=table_name_prefix,
-                                   table_name_suffix=table_name_suffix,
-                                   table_name=table_name,
-                                   data_type=data_type)
+                                        table_name_suffix=table_name_suffix,
+                                        table_name=table_name,
+                                        data_type=data_type)
 
     def get_save_directory(self,
                            directory_subpath: str | Path = None):
@@ -349,13 +281,13 @@ class ResultsIO(IOMixin):
         :return:
         """
 
-        #from . import add_file_format_suffix
+        # from . import add_file_format_suffix
         full_path = str(add_file_format_suffix(string=full_path, suffix='.npy'))
 
         np.save(f"{full_path}", array, allow_pickle=False)
 
     def write_results(self,
-                      dataframe: Union[pd.DataFrame, np.ndarray],
+                      dataframe: pd.DataFrame|Any,
                       directory_subpath: Optional[str | Path] = None,
                       table_name: Optional[str] = None,
                       table_name_prefix: Optional[str | Path] = None,
@@ -363,6 +295,7 @@ class ResultsIO(IOMixin):
                       data_type: SNDT = None,
                       df_annotations_dict: dict = None,
                       format_type='dataframe',
+                      overwrite_existing_non_csv: bool = False,
                       ):
         """
         Write results to a file in a standardized format.
@@ -401,8 +334,6 @@ class ResultsIO(IOMixin):
 
         full_path = full_save_directory / full_table_name
 
-
-
         # This is special type of data that is saved to dense array.
         # TODO(FBM): this should probably be handled in a different way
         if data_type == SNDT.Correlators:
@@ -410,15 +341,23 @@ class ResultsIO(IOMixin):
                                           full_path=full_path)
 
         if df_annotations_dict is not None:
-            dataframe = self.annotate_dataframe(dataframe=dataframe,
-                                           annotation=df_annotations_dict)
-        dataframe_renamed = self._df_rename_datatypes_columns(dataframe=dataframe)
+            if isinstance(dataframe, pd.DataFrame):
+                dataframe = self.annotate_dataframe(dataframe=dataframe,
+                                                    annotation=df_annotations_dict)
+            else:
+                print("WARNING: df_annotations_dict is provided, but the data is not a pandas DataFrame. "
+                      "Annotations will be ignored.")
 
-        #print('timestop 1', full_path)
+        if isinstance(dataframe, pd.DataFrame):
+            dataframe_renamed = self._df_rename_datatypes_columns(dataframe=dataframe)
+        else:
+            dataframe_renamed = dataframe
+        # print('timestop 1', full_path)
 
         return super().write_results(data=dataframe_renamed,
-                                  full_path=full_path,
-                                  format_type=format_type)
+                                     full_path=full_path,
+                                     format_type=format_type,
+                                     overwrite_existing_non_csv=overwrite_existing_non_csv)
 
     def read_results(self,
                      directory_subpath: Optional[str | Path] = None,
@@ -431,6 +370,7 @@ class ResultsIO(IOMixin):
                      excluded_trials=None,
                      number_of_threads=1,
                      return_none_if_not_found: bool = False,
+                     full_absolute_path_to_the_file: Optional[str] = None,
                      ):
         """
         Read results from a file in a standardized format.
@@ -458,6 +398,9 @@ class ResultsIO(IOMixin):
         If True, the function will return None if the file is not found.
         :return:
         """
+        if full_absolute_path_to_the_file is not None:
+            return super().read_results(full_path=full_absolute_path_to_the_file,
+                                        return_none_if_not_found=return_none_if_not_found)
 
         full_table_name = self.get_full_file_name_table(table_name=table_name,
                                                         data_type=data_type,
@@ -469,12 +412,12 @@ class ResultsIO(IOMixin):
         full_path = full_save_directory / full_table_name
 
         return super().read_results(full_path=full_path,
-                                         format_type=format_type,
-                                         df_annotations_dict=df_annotations_dict,
-                                         excluded_trials=excluded_trials,
-                                         number_of_threads=number_of_threads,
-                                         name_type_separator=self._dts,
-                                         return_none_if_not_found=return_none_if_not_found, )
+                                    format_type=format_type,
+                                    df_annotations_dict=df_annotations_dict,
+                                    excluded_trials=excluded_trials,
+                                    number_of_threads=number_of_threads,
+                                    name_type_separator=self._dts,
+                                    return_none_if_not_found=return_none_if_not_found)
 
 
 if __name__ == '__main__':

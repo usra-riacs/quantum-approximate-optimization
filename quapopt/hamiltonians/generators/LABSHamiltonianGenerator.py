@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 from quapopt.hamiltonians.generators.RandomClassicalHamiltonianGeneratorBase import RandomClassicalHamiltonianGeneratorBase
 from quapopt.data_analysis.data_handling import (CoefficientsDistributionSpecifier,
                                                  HamiltonianClassSpecifierLABS)
@@ -10,7 +10,7 @@ import numpy as np
 from typing import Optional
 from itertools import combinations
 from collections import Counter
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 _NORMALIZATION_LABS = 2
 
@@ -113,7 +113,19 @@ class LABSHamiltonianGenerator(RandomClassicalHamiltonianGeneratorBase):
                           number_of_qubits:int,
                           read_from_drive_if_present=True,
                           default_backend:Optional[str]=None,
-                          print_progress_bar:bool=False) -> ClassicalHamiltonian:
+                          print_progress_bar:bool=False,
+                          seed: Optional[int] = 0,
+                          ) -> ClassicalHamiltonian:
+        """
+
+        :param number_of_qubits:
+        :param read_from_drive_if_present:
+        :param default_backend:
+        :param print_progress_bar:
+        :param seed:
+        THIS IS IGNORED -- LABS is deterministic Hamiltonian. Argument for compatiblity of all other generators.
+        :return:
+        """
 
         hamiltonian_class_specifier = self._hamiltonian_class_specifier
         hamiltonian_instance_specifier = hamiltonian_class_specifier.instance_specifier_constructor(NumberOfQubits=number_of_qubits,

@@ -1,4 +1,4 @@
-
+import numba.cuda
 from .qaoa_simulator_base import QAOAFastSimulatorBase, ParamType, CostsType, TermsType
 from .c.qaoa_simulator import QAOAFURXSimulatorC, QAOAFURXYRingSimulatorC, QAOAFURXYCompleteSimulatorC
 from .python.qaoa_simulator import QAOAFURXSimulator, QAOAFURXYRingSimulator, QAOAFURXYCompleteSimulator
@@ -8,7 +8,6 @@ from .mpi_nbcuda.qaoa_simulator import mpi_available
 from .c import is_available as c_available
 
 # from .mpi_custatevec import CuStateVecMPIQAOASimulator
-
 try:
     import numba.cuda
 
@@ -52,7 +51,6 @@ def get_available_simulator_names(type: str = "x") -> list:
     if family is None:
         raise ValueError(f"Unknown simulator type: {type}")
     precedence = ["gpumpi", "gpu", "c", "python"]
-
     if numba_cuda is None:
         numba_check = lambda: False
     else:
@@ -61,8 +59,6 @@ def get_available_simulator_names(type: str = "x") -> list:
     checks = [mpi_available, numba_check, c_available]
 
 
-
-    
     available = []
     for i in range(len(checks)):
         if precedence[i] not in family:

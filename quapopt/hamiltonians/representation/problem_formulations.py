@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 """
@@ -305,9 +305,12 @@ def map_maxcut_solution_to_ising(bitstring: Union[List[int], Tuple[int, ...], np
     :param bitstring: N-dimensional 0s and 1s vector
     :return: output bitstring: (N-1)-dimensional 0s and 1s vector
     """
+    #TODO(FBM): add version that does this for many bitstrings at once efficiently
     if bitstring[-1]==0:
         return bitstring[0:len(bitstring)-1]
     else:
+        if isinstance(bitstring, (np.ndarray,cp.ndarray)):
+            return 1- bitstring[0:len(bitstring)-1]
         return [1-x for x in bitstring[0:len(bitstring)-1]]
 
 
@@ -358,7 +361,8 @@ if __name__ == '__main__':
     # TODO(FBM): should add proper tests
     import itertools
     import numpy as np
-    from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+    from quapopt import ancillary_functions as anf
+
 
     noq_test = 9
 

@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from typing import List, Tuple, Any, Optional
 
@@ -69,7 +69,7 @@ class SimpleRandomOptimizer(NonAdaptiveOptimizer):
 
 
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 
 class SimpleRandomBitstringSampler:

@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 import os
@@ -14,7 +14,8 @@ from quapopt.circuits.noise.characterization.classical_attractors import (_stand
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_DATA_TYPES as SNDT)
 
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import ResultsLogger
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 
 from quapopt.circuits.noise.simulation.ClassicalMeasurementNoiseSampler import (ClassicalMeasurementNoiseSampler)
 from quapopt.circuits.noise.characterization.measurements.DDOT import DDOTAnalyzer
@@ -36,7 +37,10 @@ class CAFAnalyzer:
                  noisy_sampler_post_processing_rng=None,
                 # uuid=None,
                  computation_backend: Optional[str] = None,
-                 append_results_df: Optional[List[pd.DataFrame]] = None, ):
+                 append_results_df: Optional[List[pd.DataFrame]] = None,
+                 experiment_instances_ids:Optional[List[str]]=None,
+
+                 old_version:bool=False):
 
         if computation_backend is None:
             computation_backend = 'numpy'
@@ -69,21 +73,23 @@ class CAFAnalyzer:
             #print(self._results_logger.experiment_folders_hierarchy)
 
 
-            results_df = self.read_results()
+            results_df = self.read_results(old_version=old_version,
+                                           experiment_instances_ids=experiment_instances_ids)
             anf.cool_print("GOT DATA...", 'Pre-processing', 'green')
             #print(results_df.columns)
 
-            results_df.drop(columns=['MCType', 'MCAnsatzDescription',
-                                     'MCAngles', 'Backend', 'Simulated',
-                                     'NumberOfQubits', 'NumberOfSamples',
-                                     'RNGSeed-Hamiltonian', 'RNGSeed-Angles',
-                                     'RNGSeed-Circuits',
-                                     'CompilationMetadata',
-                                    # 'ErrorMitigationMetadata',
-                                     'QubitsChain',
-                                     'LoggerMetadata'
-                                     ],
-                            inplace=True)
+            # results_df.drop(columns=['MCType', 'MCAnsatzDescription',
+
+            #                          'MCAngles', 'Backend', 'Simulated',
+            #                          'NumberOfQubits', 'NumberOfSamples',
+            #                          'RNGSeed-Hamiltonian', 'RNGSeed-Angles',
+            #                          'RNGSeed-Circuits',
+            #                          'CompilationMetadata',
+            #                         # 'ErrorMitigationMetadata',
+            #                          'QubitsChain',
+            #                          'LoggerMetadata'
+            #                          ],
+            #                 inplace=True)
 
             unique_jobs = sorted(results_df[SNV.JobId.id_long].unique())
             all_results = []
@@ -91,10 +97,12 @@ class CAFAnalyzer:
             for circuit_index in unique_jobs:
                 df_i = results_df[results_df[SNV.JobId.id_long] == circuit_index].copy()
 
-
+                #print(df_i.columns)
                 unique_delay_schedules = sorted(df_i['DSDescription'].unique())
                 unique_mcr = sorted(df_i['MCRepeats'].unique())
                 unique_circuit_labels = df_i[SNV.CircuitLabel.id_long].unique()
+
+                #print(type(unique_circuit_labels[0]), type(unique_delay_schedules[0]), type(unique_mcr[0]))
                 assert len(unique_delay_schedules) == 1, "The delays should be unique for each circuit index."
                 assert len(unique_mcr) == 1, "The mirror circuit repeats should be unique for each circuit index."
                 assert len(unique_circuit_labels) == 1, "The circuit labels should be unique for each circuit index."
@@ -116,11 +124,14 @@ class CAFAnalyzer:
                                                  SNV.CircuitLabel.id_long: [tuple(circuit_label)] * len(circuit_counts),
                                                  SNV.Bitstring.id_long: circuit_bitstrings.tolist(),
                                                  SNV.Count.id_long: circuit_counts.tolist()})
+
+
                 all_results.append(df_res_here)
 
             if append_results_df is not None:
                 for df in append_results_df:
                     all_results.append(df)
+          #  print('hej', [type(x) for x in all_results])
 
             df_results = pd.concat(all_results, axis=0)
 
@@ -148,7 +159,8 @@ class CAFAnalyzer:
         self._number_of_qubits = len(self._df_results['CircuitLabel'].values[0])
 
     def calculate_noise_matrices(self,
-                                 subsets_2q=None, ):
+                                 subsets_2q=None,
+                                 include_2q=False):
 
         if subsets_2q is None:
             subsets_2q = [(i, i + 1) for i in range(0, self._number_of_qubits - 1, 2)]
@@ -190,8 +202,6 @@ class CAFAnalyzer:
                 noise_matrices_1q = list(ddot_analyzer_i.get_1q_noise_matrices())
                 # noise_matrix_1q_av = noise_matrices_1q.sum(axis=0) / len(noise_matrices_1q)
 
-                noise_matrices_2q = list(ddot_analyzer_i.get_2q_noise_matrices(subsets_2q=subsets_2q,
-                                                                               show_progress_bar=False))
                 # noise_matrix_2q_av = noise_matrices_2q.sum(axis=0) / len(noise_matrices_2q)
 
                 df_res_here = pd.DataFrame({'DSDescription': [delay] * self._number_of_qubits,
@@ -199,12 +209,16 @@ class CAFAnalyzer:
                                             'Subset': [(i,) for i in range(self._number_of_qubits)],
                                             'NoiseMatrix': noise_matrices_1q})
 
-                df_2q = pd.DataFrame(data={
-                    'DSDescription': [delay] * len(subsets_2q),
-                    'MCRepeats': [mcr] * len(subsets_2q),
-                    'Subset': subsets_2q,
-                    'NoiseMatrix': noise_matrices_2q})
-                df_res_here = pd.concat([df_res_here, df_2q], axis=0)
+                if include_2q:
+                    noise_matrices_2q = list(ddot_analyzer_i.get_2q_noise_matrices(subsets_2q=subsets_2q,
+                                                                                   show_progress_bar=False))
+
+                    df_2q = pd.DataFrame(data={
+                        'DSDescription': [delay] * len(subsets_2q),
+                        'MCRepeats': [mcr] * len(subsets_2q),
+                        'Subset': subsets_2q,
+                        'NoiseMatrix': noise_matrices_2q})
+                    df_res_here = pd.concat([df_res_here, df_2q], axis=0)
                 all_dfs.append(df_res_here)
 
         self._df_noise_matrices = pd.concat(all_dfs, axis=0)
@@ -230,27 +244,43 @@ class CAFAnalyzer:
         return self._df_noise_matrices
 
     def read_results(self,
-                     #uuid=None
+                     experiment_instances_ids=None,
+                     old_version=False
                      ):
+        if old_version:
+            return self._read_results_depreciated()
+
+        #We implemented a new version of results logger, which is more general and robust.
+        #So we read the results using the new version.
+        df_results = self._results_logger.gather_results(data_type=SNDT.BitstringsHistograms,
+                                                         experiment_instance_ids=experiment_instances_ids)
+        df_results['CircuitLabel'] = df_results['CircuitLabel'].apply(anf.eval_string_tuple_to_tuple)
+
+
+        return df_results
+
+
+    def _read_results_depreciated(self):
+        """
+        This is a backward-compatibility function for the old version of the results logger.
+        :return:
+        """
+
 
         dataframes = []
 
-        #print(self._results_logger.get_base_path())
+        # print(self._results_logger.get_base_path())
         bitstrings_folder = self._results_logger.get_absolute_path_of_data_type(data_type=SNDT.BitstringsHistograms)
         metadata_folder = self._results_logger.get_absolute_path_of_data_type(data_type=SNDT.CircuitsMetadata)
-
-
 
         files_bitstrings = sorted(os.listdir(bitstrings_folder))
         files_metadata = sorted(os.listdir(metadata_folder))
 
-        #TODO(FBM): modernize this function
-
+        # TODO(FBM): modernize this function
 
         for file_name_bts in files_bitstrings:
             split_name_bts = file_name_bts.split(self._results_logger._tnps)
             table_name_main_bitstrings = self._results_logger._tnps.join(split_name_bts[0:-1])
-
 
             for file_name_metadata in files_metadata:
                 split_name_metadata = file_name_metadata.split(self._results_logger._tnps)
@@ -258,22 +288,24 @@ class CAFAnalyzer:
                 if table_name_main_bitstrings == table_name_main_metadata:
                     break
 
-
-            if table_name_main_bitstrings!=table_name_main_metadata:
-                raise FileNotFoundError(f"Metadata file {file_name_metadata} does not match bitstrings file {file_name_bts}.")
+            if table_name_main_bitstrings != table_name_main_metadata:
+                raise FileNotFoundError(
+                    f"Metadata file {file_name_metadata} does not match bitstrings file {file_name_bts}.")
 
             df_here_bts = self._results_logger.read_results(table_name=table_name_main_bitstrings,
                                                             data_type=SNDT.BitstringsHistograms,
-                                                            return_none_if_not_found=True)
+                                                            return_none_if_not_found=True,
+                                                            filter_by_experiment_set=False,
+                                                            append_experiment_set_suffix=False)
             if df_here_bts is None:
                 continue
             df_here_metadata = self._results_logger.read_results(table_name=table_name_main_bitstrings,
-                                                                 data_type=SNDT.CircuitsMetadata)
-
-
+                                                                 data_type=SNDT.CircuitsMetadata,
+                                                                 filter_by_experiment_set=False,
+                                                                 append_experiment_set_suffix=False)
 
             if df_here_metadata.empty:
-                raise FileNotFoundError(f"Metadata dataframe is empty for table {table_name_add}. ")
+                raise FileNotFoundError(f"Metadata file {file_name_metadata} is empty.")
 
             # assert len(df_here_metadata) == 1, ("The metadata dataframe should be of length 1, "
             #                                     "if it is not, you have to provide uuid",
@@ -295,6 +327,8 @@ class CAFAnalyzer:
         results_df['CircuitLabel'] = results_df['CircuitLabel'].apply(anf.eval_string_tuple_to_tuple)
 
         return results_df
+
+
 
     def plot_hamming_weight_histograms(self,
                                        df_results: Optional[pd.DataFrame] = None,
@@ -575,13 +609,15 @@ class CAFAnalyzer:
     def plot_average_noise_rates(self,
                                  noise_matrices_df: Optional[pd.DataFrame] = None,
                                  grouped_by='delay',
-                                 name_suffix='',
                                  folder_path: Optional[str] = None,
-                                 add_info_title: Optional[str] = None,
+                                 additional_title_string: Optional[str] = None,
+                                 additional_figure_name_string: Optional[str] = None,
                                  save_html=True,
-                                 add_2q = False
+                                 plot_noise_bias=False
+
 
                                  ):
+        add_2q = False,
 
         if folder_path is None:
             folder_path = f'../temp/figs/CAF/'
@@ -592,40 +628,110 @@ class CAFAnalyzer:
         df_1q = noise_matrices_df[noise_matrices_df['Subset'].apply(lambda x: len(x) == 1)].copy()
         df_2q = noise_matrices_df[noise_matrices_df['Subset'].apply(lambda x: len(x) == 2)].copy()
 
-        from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+        from quapopt import ancillary_functions as anf
+
         unique_variables_columns_names = ['DSDescription', 'MCRepeats']
 
         df_1q['p(0->0)'] = df_1q['NoiseMatrix'].apply(lambda x: x[0, 0])
         df_1q['p(1->1)'] = df_1q['NoiseMatrix'].apply(lambda x: x[1, 1])
 
+        df_1q['p(0->0)-p(1->1)'] = df_1q.apply(lambda row:row['p(0->0)'] - row['p(1->1)'], axis=1)
+
+
         df_1q.drop(columns=['NoiseMatrix', 'Subset'], inplace=True)
 
-        df_1q_av = anf.contract_dataframe_with_functions(df=df_1q,
-                                                         contraction_column='',
-                                                         functions_to_apply=['mean', 'std'],
-                                                         unique_variables_columns_names=['DSDescription', 'MCRepeats'])
+        df_1q_av = anf.contract_dataframe_with_aggregating_functions(df=df_1q,
+                                                         functions_to_apply=['mean', 'median','std', 'min', 'max'],
+                                                         grouping_columns=['DSDescription', 'MCRepeats'])
+
+
+        # print(df_1q_av)
+
 
         df_2q['p(00->00)'] = df_2q['NoiseMatrix'].apply(lambda x: x[0, 0])
         df_2q['p(01->01)'] = df_2q['NoiseMatrix'].apply(lambda x: x[1, 1])
         df_2q['p(10->10)'] = df_2q['NoiseMatrix'].apply(lambda x: x[2, 2])
         df_2q['p(11->11)'] = df_2q['NoiseMatrix'].apply(lambda x: x[3, 3])
         df_2q.drop(columns=['NoiseMatrix', 'Subset'], inplace=True)
-        df_2q_av = anf.contract_dataframe_with_functions(df=df_2q,
-                                                         contraction_column='',
-                                                         functions_to_apply=['mean', 'std'],
-                                                         unique_variables_columns_names=['DSDescription', 'MCRepeats'])
+        df_2q_av = anf.contract_dataframe_with_aggregating_functions(df=df_2q,
+                                                         functions_to_apply=['mean','median', 'std', 'min', 'max'],
+                                                         grouping_columns=['DSDescription', 'MCRepeats'])
 
         # print(df_2q_av)
         # raise KeyboardInterrupt
 
-        delays_list = sorted(noise_matrices_df['DSDescription'].unique())
+
+        delays_list = list(noise_matrices_df['DSDescription'].unique())
+        random_sampling_str = None
+        for x in delays_list:
+            if 'randomsampling' in x.lower():
+                random_sampling_str = x
+                break
+
+        # if random_sampling_str is not None:
+        #remove random_sampling_str from delays_list and put it at the end of the list
+        if random_sampling_str is not None:
+            delays_list.remove(random_sampling_str)
+
+        def _sorting_function(ds_description:str):
+            #we have two strings that identify the delay schedule: a) DelayBase=X; b) mean~X; We want to detect them and sort accordingly
+            if 'DelayBase=' in ds_description:
+                return ds_description.split('DelayBase=')[1]
+            elif 'mean~' in ds_description:
+                _split = ds_description.split('mean~')[1]
+
+                float_type = None
+                for digits in [1,2,3,4,5]:
+                    try:
+                        float_type = float(_split[0:digits])
+                    except(ValueError, TypeError):
+                        continue
+               # print(float_type)
+                return float_type
+            else:
+                return ds_description
+
+        delays_list = sorted(delays_list,key = _sorting_function)
+        if random_sampling_str is not None:
+            delays_list.append(random_sampling_str)
+
+
+        def _rename_function(ds_description:str):
+            if 'RandomSampling' in ds_description:
+                return "RandomSampling"
+
+
+            if 'DelayBase=' in ds_description:
+                _split = ds_description.split('DelayBase=')[1]
+
+
+                return "Delay="+_split
+            elif 'mean~' in ds_description:
+                _split = ds_description.split('mean~')[1]
+                return "Delay="+_split
+            else:
+                return ds_description
+
+        #delays_list = [_rename_function(x) for x in delays_list]
+
+
+
 
         number_of_columns = 1
         number_of_rows = 1
 
         figs_add_list = ['1q', '2q'] if add_2q else ['1q']
 
-        for sub_name_list, fig_add in zip([['p(1->1)', 'p(0->0)'],
+
+        if plot_noise_bias:
+            sub_names_1q = ['p(0->0)-p(1->1)']
+
+
+        else:
+            sub_names_1q = ['p(0->0)', 'p(1->1)']
+
+
+        for sub_name_list, fig_add in zip([sub_names_1q,
                                            ['p(11->11)',
                                             'p(00->00)',
                                             'p(01->01)',
@@ -636,9 +742,14 @@ class CAFAnalyzer:
             #                   f'2q readout fidelity; {add_info_title}']
 
             if fig_add == '1q':
-                subplot_titles = [f"1Q 'State Preservation Fidelity' ({add_info_title})"]
+                if plot_noise_bias:
+                    subplot_titles = [f"1Q Noise Bias<br>({additional_title_string})"]
+
+                else:
+
+                    subplot_titles = [f"1Q 'State Preservation Fidelity'<br>({additional_title_string})"]
             elif fig_add == '2q':
-                subplot_titles = [f"2Q 'State Preservation Fidelity' ({add_info_title})"]
+                subplot_titles = [f"2Q 'State Preservation Fidelity'<br>({additional_title_string})"]
 
             fig = make_subplots(rows=number_of_rows,
                                 cols=number_of_columns,
@@ -648,19 +759,40 @@ class CAFAnalyzer:
             colors_list = ['forestgreen', 'cornflowerblue', 'crimson', 'darkviolet', 'coral', 'crimson', 'darkorange', 'darkkhaki', 'darkslateblue']
             lines_list = ['solid', 'dot', 'dash', 'longdash', 'dashdot']
 
-            yrange = (-0.01, 1.01)
+
+            if plot_noise_bias:
+                yrange = (-0.1, 0.2)
+            else:
+                yrange = (-0.01, 1.01)
 
             for idx_delay, delay in enumerate(delays_list):
                 df_1q_av_i = df_1q_av[df_1q_av['DSDescription'] == delay].copy()
                 df_2q_av_i = df_2q_av[df_2q_av['DSDescription'] == delay].copy()
 
+                #print(df_1q_av_i)
+
                 mcrs_i_1q = df_1q_av_i['MCRepeats'].values
                 mcrs_i_2q = df_2q_av_i['MCRepeats'].values
 
                 for sub_idx, sub_name in enumerate(sub_name_list):
-                    if sub_name in ['p(1->1)', 'p(0->0)']:
-                        fom_i_mean = df_1q_av_i[f"{sub_name}_mean"].values
+                    if sub_name in ['p(1->1)', 'p(0->0)', 'p(0->0)-p(1->1)']:
+                        fom_i_mean = df_1q_av_i[f"{sub_name}_median"].values
                         fom_i_std = df_1q_av_i[f"{sub_name}_std"].values
+                        fom_i_min = df_1q_av_i[f"{sub_name}_min"].values
+                        fom_i_max = df_1q_av_i[f"{sub_name}_max"].values
+                        #lets plot min, max values
+                        # array_err_y = np.array([fom_i_max - fom_i_mean,
+                        #                         fom_i_mean - fom_i_min
+                        #                         ])
+                        # arrayminus_y = np.array([fom_i_min])
+                        # arrayplus_y = np.array([fom_i_max])
+                        # #
+                        #
+                        # print(arrayminus_y)
+                        # print(fom_i_mean)
+                        # print(arrayplus_y)
+                        # raise KeyboardInterrupt
+
                         mcrs_i = mcrs_i_1q
                         row_idx = 1
 
@@ -689,10 +821,11 @@ class CAFAnalyzer:
                                              # add error bars
                                              error_y=dict(type='data',
                                                           array=fom_i_std,
+                                                         # arrayminus=arrayminus_y,
                                                           visible=True,
                                                           width=8),
                                              mode='markers+lines',
-                                             name=f"{sub_name}; {delay}",
+                                             name=f"{sub_name}; {_rename_function(delay)}",
                                              marker=dict(color=color,
                                                          symbol=symbol,
                                                          size=8
@@ -707,6 +840,35 @@ class CAFAnalyzer:
                                   row=row_idx,
                                   col=1,
                                   )
+
+
+                    if plot_noise_bias:
+                        #we want to plot a horizontal line from min circuit repetitions to max circuit repetitions,
+                        # dotted and grey, corresponding to random sampling
+                        #copilot, you there?
+                        # well, I'm here
+                        fig.add_hline(y=0,
+                                      line=dict(color='gray',
+                                                width=4,
+                                                dash='dot'),
+                                     # annotation='RandomSampling',
+                                      row=row_idx,
+                                      col=1,
+                                      )
+                    else:
+                        fig.add_hline(y=0.5,
+                                      line=dict(color='gray',
+                                                width=4,
+                                                dash='dot'),
+                                     # annotation='RandomSampling',
+
+                                      )
+
+
+
+
+
+
 
                     linewidht_grid = 2.
                     color_grid = "rgba(0,0,0,0.35)"  # any CSS‐style color string
@@ -725,7 +887,17 @@ class CAFAnalyzer:
                                      # minor_gridwidth=linewidht_grid,  # thickness in px
                                      )
 
-                    fig.update_yaxes(title_text="Probability",
+                    if fig_add == '2q':
+                        yname = f"Probability (State Preservation {fig_add})"
+                    elif fig_add == '1q':
+                        if plot_noise_bias:
+                            yname = f"Noise Bias ({fig_add})"
+                        else:
+                            yname=f"Probability (State Preservation {fig_add})"
+
+
+
+                    fig.update_yaxes(title_text=yname,
                                      row=row_idx,
                                      col=1,
                                      range=yrange,
@@ -755,21 +927,63 @@ class CAFAnalyzer:
                                   # let's change legend's orientation
                                   orientation='h',
                                   # entrywidth= 1000,
-                                  font=dict(size=24)
+                                  font=dict(size=30)
 
                               ),
                               bargap=0.0000001,
-                              font=dict(size=26),
+                              font=dict(size=40),
                               )
-            fig.update_annotations(font_size=26)
+            fig.update_annotations(font_size=40)
+            # fig.for_each_annotation(lambda a: a.update(text=subplot_titles[int(a.text) - 1],
+            #                                            font=dict(size=36), ))
 
-            plot_name = f'Histograms_errors_{fig_add}'
-            file_name = f'{folder_path}{plot_name};{name_suffix}'
-            os.makedirs('/'.join(file_name.split('/')[0:-1]), exist_ok=True)
-            fig.write_image(file=f'{file_name}.png',
-                            format='png',
-                            scale=3.0)
+            if plot_noise_bias:
+                prefix = 'NoiseBias'
+            else:
+                prefix = 'SpamFidelities'
+
+            file_name = f'{prefix};{fig_add};{additional_figure_name_string}'
+            os.makedirs(folder_path, exist_ok=True)
 
             if save_html:
                 plotly.offline.plot(fig,
-                                    filename=f'{file_name}.html')
+                                    filename=f'{folder_path}{file_name}.html')
+
+            
+            # Create PNG-optimized version with better sizing
+            fig_png = go.Figure(fig)  # Create a copy to avoid modifying the original
+            fig_png.update_layout(
+                height=900,  # Increased height to accommodate legend above
+                width=1000,  # Standard width
+                legend=dict(
+                    yanchor='bottom',
+                    y=1.22,  # Place legend above the plot
+                    xanchor='center',
+                    x=0.5,  # Center horizontally
+                    orientation='h',  # Horizontal orientation for space efficiency
+                    font=dict(size=30),
+                    bgcolor='rgba(255,255,255,0.95)',  # Semi-transparent background
+                    bordercolor='rgba(0,0,0,0.2)',
+                    borderwidth=1,
+                    itemsizing='constant',  # Consistent item sizing
+                    tracegroupgap=5,  # Reduce gap between groups
+                    itemwidth=30  # Control item width
+                ),
+                font=dict(size=40),  # General font size
+                margin=dict(l=80, r=40, t=200, b=60),  # Large top margin for legend
+                title=dict(
+                    font=dict(size=40),
+                    y=0.98,  # Move title up slightly
+                    yanchor='top'
+                )
+            )
+
+            # Write PNG with explicit dimensions
+            fig_png.write_image(file=f'{folder_path}{file_name}.png',
+                            format='png',
+                            width=1500,  # Explicit width in pixels
+                            height=1600,  # Explicit height in pixels
+                            scale=1.0)  # Don't scale, use explicit dimensions
+
+
+            return fig

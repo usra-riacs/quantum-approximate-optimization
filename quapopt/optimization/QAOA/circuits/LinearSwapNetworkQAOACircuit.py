@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 
 from typing import Optional, Tuple
@@ -8,7 +8,8 @@ from typing import Optional, Tuple
 import numpy as np
 from pydantic import conint
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.circuits.gates import _SUPPORTED_SDKs
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
@@ -18,8 +19,28 @@ from quapopt.circuits.gates import AbstractProgramGateBuilder
 
 
 
-def get_linear_chain_permutation(swap_chain,
-                                 number_of_qubits):
+def get_linear_chain_permutation(swap_chain, number_of_qubits):
+    """
+    Convert a SWAP chain specification to a standard permutation representation.
+    
+    This function transforms a sequence of SWAP operations into a permutation tuple
+    following the standard format where π_i represents the image of element i under
+    the permutation. For example, if π_0 = 1, element 0 is mapped to element 1.
+    
+    :param swap_chain: List of SWAP pairs, e.g., [(0,1), (2,3)] for swapping (0↔1) and (2↔3)
+    :type swap_chain: List[Tuple[int, int]]
+    :param number_of_qubits: Total number of qubits in the system
+    :type number_of_qubits: int
+    
+    :returns: Permutation tuple (π_0, π_1, ..., π_{n-1}) representing qubit mapping
+    :rtype: Tuple[int, ...]
+    
+    :raises AssertionError: If swap_chain contains duplicate qubit indices
+    
+    Example:
+        >>> get_linear_chain_permutation([(0, 1), (2, 3)], 4)
+        (1, 0, 3, 2)  # 0↔1, 2↔3, others unchanged
+    """
     # permutation here is defined by SWAP chain. We want to convert it to standard format of permutations
     # In our standard format, permuation is tuple (\pi_0, \pi_1, \pi_2, ..., \pi_{n-1}),where \pi_i is image of the
     # permutation on i-th element. So, if \pi_0 = 1, it means that 0-th element is mapped to 1st element
@@ -40,8 +61,28 @@ def get_linear_chain_permutation(swap_chain,
     return tuple(permutation)
 
 
-def apply_permutation_to_edges(edges_list,
-                               permutation):
+def apply_permutation_to_edges(edges_list, permutation):
+    """
+    Apply a qubit permutation to a list of interaction edges.
+    
+    This function transforms edge specifications according to a given permutation,
+    ensuring edges remain in sorted form. Used to track how Hamiltonian interactions
+    are mapped when qubits are permuted by SWAP operations.
+    
+    :param edges_list: List of edge tuples representing qubit interactions
+    :type edges_list: List[Tuple[int, int]]
+    :param permutation: Permutation tuple mapping qubit indices
+    :type permutation: Tuple[int, ...]
+    
+    :returns: List of permuted edges in sorted form
+    :rtype: List[Tuple[int, int]]
+    
+    Example:
+        >>> edges = [(0, 1), (1, 2)]
+        >>> perm = (1, 0, 2)  # swap qubits 0 and 1
+        >>> apply_permutation_to_edges(edges, perm)
+        [(0, 1), (0, 2)]  # (0,1) → (1,0) → (0,1), (1,2) → (0,2)
+    """
     # edges_list is a list of sorted tuples, where each tuple is an edge (sorted)
     # permutation is a tuple, where each element is the image of the permutation on the corresponding element
 
@@ -52,6 +93,35 @@ def get_swap_network_permutation(number_of_qubits: int,
                                  depth: int,
                                  time_block_size: Optional[int] = None,
                                  ):
+    """
+    Construct the overall permutation for a complete Linear Swap Network circuit.
+    
+    This function computes the cumulative effect of alternating linear chains across
+    all QAOA layers and time blocks. The swap network alternates between two chain
+    types to enable all pairwise interactions over the circuit execution.
+    
+    The two alternating chain patterns are:
+    - Chain 1: (0,1), (2,3), (4,5), ... (even-indexed pairs)
+    - Chain 2: (1,2), (3,4), (5,6), ... (odd-indexed pairs)
+    
+    :param number_of_qubits: Total number of qubits in the circuit
+    :type number_of_qubits: int
+    :param depth: Number of QAOA layers (p parameter)
+    :type depth: int
+    :param time_block_size: Number of linear chains per layer, defaults to number_of_qubits
+    :type time_block_size: int, optional
+    
+    :returns: Overall permutation representing cumulative qubit mapping
+    :rtype: Tuple[int, ...]
+    
+    Example:
+        >>> get_swap_network_permutation(4, depth=1, time_block_size=2)
+        # Returns permutation for 2 alternating chains in 1 layer
+    
+    .. note::
+        The total number of chains is depth × time_block_size. Chains alternate
+        between the two patterns, with Chain 1 used for odd total counts.
+    """
     # We will construct the permutation for the SWAP network
     # We will do this by constructing the permutation for each layer and then multiplying them
 
@@ -76,12 +146,73 @@ def get_swap_network_permutation(number_of_qubits: int,
 
 
 class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
-    """Build a parameterized quantum approximate optimization circuit for any optimization problem.
-
-    NOTE: this should be ~optimal for FULLY-CONNECTED graphs. For sparse graphs, it's very inefficient.
-
-    #TODO(FBM): add "mirror trick" for p>1 ansatz.
-
+    """
+    QAOA ansatz circuit using Linear Swap Network topology for constrained qubit connectivity.
+    
+    This class constructs parameterized QAOA circuits optimized for linear qubit topologies
+    where interactions are implemented through alternating SWAP networks. The approach uses
+    two alternating linear chains of SWAP gates to enable interactions between all qubit pairs
+    over time, making it ideal for fully-connected optimization problems on linear hardware.
+    
+    The Linear Swap Network realizes all pairwise interactions by alternating between:
+    - Chain 1: (0,1), (2,3), (4,5), ... (even-indexed adjacent pairs)
+    - Chain 2: (1,2), (3,4), (5,6), ... (odd-indexed adjacent pairs)
+    
+    Over multiple time blocks, these alternating chains enable all qubits to interact,
+    effectively simulating fully-connected topology on linearly-connected hardware.
+    
+    :param sdk_name: Quantum SDK to use for circuit construction ('qiskit', 'pyquil', 'cirq')
+    :type sdk_name: str
+    :param depth: Number of QAOA layers (p parameter)
+    :type depth: int
+    :param hamiltonian_phase: Phase Hamiltonian defining the optimization problem
+    :type hamiltonian_phase: ClassicalHamiltonian
+    :param program_gate_builder: Gate builder for SDK-specific gate implementations
+    :type program_gate_builder: AbstractProgramGateBuilder
+    :param time_block_size: Number of linear chains per QAOA layer
+    :type time_block_size: int, optional
+    :param phase_separator_type: Type of phase separator gates (QAOA or QAMPA)
+    :type phase_separator_type: PhaseSeparatorType
+    :param mixer_type: Type of mixer gates (QAOA or QAMPA)
+    :type mixer_type: MixerType
+    :param linear_chains_pair_device: Custom device qubit mapping for the two linear chains
+    :type linear_chains_pair_device: Tuple[Tuple[int, ...], Tuple[int, ...]], optional
+    :param every_gate_has_its_own_parameter: Whether each gate gets independent parameters (Qiskit only)
+    :type every_gate_has_its_own_parameter: bool
+    :param input_state: Initial quantum state ('|+>' or '|0>')
+    :type input_state: str, optional
+    :param add_barriers: Whether to add quantum barriers between layers (Qiskit only)
+    :type add_barriers: bool
+    
+    Example:
+        >>> from quapopt.hamiltonians import ClassicalHamiltonian
+        >>> from quapopt.circuits.gates.logical import LogicalGateBuilderQiskit
+        >>> # Create MaxCut Hamiltonian
+        >>> ham = ClassicalHamiltonian([(1.0, (0, 1)), (1.0, (1, 2))], number_of_qubits=3)
+        >>> gate_builder = LogicalGateBuilderQiskit()
+        >>> # Build Linear Swap Network circuit
+        >>> circuit = LinearSwapNetworkQAOACircuit(
+        ...     sdk_name='qiskit',
+        ...     depth=2,
+        ...     hamiltonian_phase=ham,
+        ...     program_gate_builder=gate_builder,
+        ...     time_block_size=4
+        ... )
+    
+    .. note::
+        This approach is optimal for fully-connected graphs but inefficient for sparse graphs
+        where many SWAP operations implement unused interactions.
+    
+    .. note::
+        For Linear Swap Networks, `time_block_size` specifies the number of linear chains
+        per layer, distinct from FullyConnected QAOA where it represents interaction fraction.
+    
+    .. todo::
+        Add "mirror trick" optimization for depth > 1 ansatz to reduce circuit depth.
+    
+    .. warning::
+        The `every_gate_has_its_own_parameter` mode only supports Qiskit SDK with specific
+        constraints: 2-local Hamiltonians, depth=1, and time_block_size=number_of_qubits.
     """
 
     def __init__(
@@ -108,13 +239,13 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
             input_state = '|+>'
 
         ansatz_specifier = AnsatzSpecifier(
-                                    phase_hamiltonian_class_specifier=hamiltonian_phase.hamiltonian_class_specifier,
-                                    phase_hamiltonian_instance_specifier=hamiltonian_phase.hamiltonian_instance_specifier,
-                                    depth=depth,
-                                    phase_separator_type=phase_separator_type,
-                                    mixer_type=mixer_type,
-                                    qubit_mapping_type=QubitMappingType.linear_swap_network,
-                                    time_block_size=time_block_size
+                                    PhaseHamiltonianClass=hamiltonian_phase.hamiltonian_class_specifier,
+                                    PhaseHamiltonianInstance=hamiltonian_phase.hamiltonian_instance_specifier,
+                                    Depth=depth,
+                                    PhaseSeparatorType=phase_separator_type,
+                                    MixerType=mixer_type,
+                                    QubitMappingType=QubitMappingType.linear_swap_network,
+                                    TimeBlockSize=time_block_size
                                     )
 
         # We will need two types of indices. One is abstract qubit indexing so from 0 to n-1 for construction of SWAP network
@@ -366,16 +497,12 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
                                                                 time_block_size=time_block_size)
         # Now we want hamiltonian for which we don't have to do anything with the bitstrings when calculating energies
         # We apply swap network permutation to the hamiltonian on the level of abstract indices.
-        #this is only for storage purposes
-        hamiltonian_phase = hamiltonian_phase.copy()
-        hamiltonian_phase = hamiltonian_phase.apply_permutation(permutation_tuple=swap_network_permutation)
 
         super().__init__(
             quantum_circuit=quantum_circuit,
-            mapped_hamiltonian=hamiltonian_phase,
             logical_to_physical_qubits_map=map_logical_qubits_to_physical_qubits,
             parameters=[angle_phase, angle_mixer],
-            permutation_circuit_network=swap_network_permutation,
+            qubit_mapping_permutation=swap_network_permutation,
             ansatz_specifier=ansatz_specifier
 
         )
@@ -480,7 +607,7 @@ if __name__ == '__main__':
     # betas_values = [0.2]*depth_test
 
     random_angles = np.random.uniform(-np.pi / 2, np.pi / 2, (2 * depth_test, 1000))
-    from tqdm import tqdm
+    from tqdm.notebook import tqdm
 
     gammas_list = circuit_builder_LSN.parameters[0]
     betas_list = circuit_builder_LSN.parameters[1]

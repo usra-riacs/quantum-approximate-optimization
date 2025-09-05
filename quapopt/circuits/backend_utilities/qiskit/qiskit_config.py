@@ -1,11 +1,10 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
 
-from quapopt import AVAILABLE_SIMULATORS
-from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType
 
-if 'cuda' in AVAILABLE_SIMULATORS:
+from quapopt.circuits.backend_utilities.qiskit.check_backends import AVAILABLE_SIMULATORS_QISKIT
+
+if 'aer-gpu' in AVAILABLE_SIMULATORS_QISKIT:
     DEFAULT_DEVICE_SIMULATOR_QISKIT = 'GPU'
 else:
     DEFAULT_DEVICE_SIMULATOR_QISKIT = 'CPU'
@@ -14,16 +13,17 @@ else:
 
 
 DEFAULT_SIMULATED_SAMPLER_KWARGS =  {'device': DEFAULT_DEVICE_SIMULATOR_QISKIT,
-                              'precision': 'single',
-                              'seed_simulator': 42,
-                              'cuStateVec_enable': True,
-                              'max_job_size': None,
-                              'max_shot_size': None,
-                              'enable_truncation': True,
-                              'zero_threshold': 10 ** (-10),
-                              'validation_threshold': 10 ** (-8),
-                              'max_parallel_threads': 15,
-                              'max_parallel_experiments': 1,
+                                     'method':'statevector',
+                                      'precision': 'double',
+                                      'seed_simulator': 42,
+                                      'cuStateVec_enable': True,
+                                      'max_job_size': None,
+                                      'max_shot_size': None,
+                                      'enable_truncation': True,
+                                      'zero_threshold': 10 ** (-10),
+                                      'validation_threshold': 10 ** (-8),
+                                      'max_parallel_threads': 15,
+                                      'max_parallel_experiments': 1,
                                      'max_parallel_shots': 0,
                                      'max_memory_mb': 0,
                                      'blocking_enable': False,
@@ -46,9 +46,12 @@ DEFAULT_QPU_EM_KWARGS= {'dynamical_decoupling': dict(enable=False),
 
 DEFAULT_QPU_JOB_KWARGS = {'max_execution_time': 60 * 10,}
 
-DEFAULT_QPU_SAMPLER_KWARGS = {**DEFAULT_QPU_EM_KWARGS, **DEFAULT_QPU_JOB_KWARGS}
+DEFAULT_QPU_SAMPLER_KWARGS = {**DEFAULT_QPU_EM_KWARGS,
+                              **DEFAULT_QPU_JOB_KWARGS}
 
 
 DEFAULT_QPU_BACKEND_KWARGS = {'use_fractional_gates':False}
-DEFAULT_SIMULATOR_BACKEND_KWARGS = {}
+DEFAULT_SIMULATOR_BACKEND_KWARGS = {**{'device': DEFAULT_DEVICE_SIMULATOR_QISKIT,
+                                     'method':'statevector'},
+                                    **DEFAULT_SIMULATED_SAMPLER_KWARGS.copy()}
 

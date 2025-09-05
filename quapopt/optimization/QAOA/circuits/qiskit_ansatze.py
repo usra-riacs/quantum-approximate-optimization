@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
 from typing import Optional, Tuple
@@ -8,7 +8,8 @@ from pydantic import conint, confloat
 
 import numpy as np
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.circuits.gates import _SUPPORTED_SDKs
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
@@ -32,9 +33,12 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
             phase_separator_type=PhaseSeparatorType.QAOA,
             mixer_type=MixerType.QAOA,
             input_state:Optional[str]=None,
-            add_barriers=False
+            add_barriers=False,
+            number_of_qubits_circuit: Optional[int]=None,
+            shuffling_seed: int = 42
             ):
 
+    #TODO(FBM): incorporate the build_fractional_time_block_ansatz_qiskit function here
 
 
     # We will need two types of indices. One is abstract qubit indexing so from 0 to n-1
@@ -69,7 +73,12 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
            # raise NotImplementedError("Time block size != 1.0 is not supported for depth > 1 yet. ")
 
         #we split the hamiltonian interactions into sub-blocks
-        hamiltonian_phase_list = hamiltonian_phase.hamiltonian
+
+        # Fractional time blocking case
+        hamiltonian_phase_list = hamiltonian_phase.hamiltonian.copy()
+
+        rng_shuffling = np.random.default_rng(seed=shuffling_seed)
+        rng_shuffling.shuffle(hamiltonian_phase_list)
 
         number_of_interactions = len(hamiltonian_phase_list)
 
@@ -77,7 +86,11 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
         number_of_batches = int(np.ceil(1/time_block_size))
         number_of_interactions_per_batch = int(np.ceil(number_of_interactions/number_of_batches))
 
-        ansatz_qiskit = QuantumCircuit(number_of_qubits, number_of_qubits)
+        if number_of_qubits_circuit is None:
+            number_of_qubits_circuit = number_of_qubits
+
+
+        ansatz_qiskit = QuantumCircuit(number_of_qubits_circuit, number_of_qubits)
         for qi in range(number_of_qubits):
             if initial_state == '|+>' or initial_state is None:
                 ansatz_qiskit.h(qi)
@@ -117,16 +130,13 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
                     gamma_batch = param
 
             ansatz_qiskit.assign_parameters(parameters={beta_batch:angle_mixer[param_index],
-                                                            gamma_batch:angle_phase[param_index]},
+                                                        gamma_batch:angle_phase[param_index]},
                                             inplace=True)
 
 
 
             if add_barriers:
                 ansatz_qiskit.barrier()
-
-
-
 
     else:
         if add_barriers:
@@ -151,9 +161,6 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
         ansatz_qiskit.assign_parameters(parameters=params_dict,
                                         inplace=True)
 
-   # print('hejka ')
-    #print(ansatz_qiskit.parameters)
-   # raise KeyboardInterrupt
 
     if len(ansatz_qiskit.cregs)==0:
         #I don't know why, but sometimes Qiskit does not add classical registers, so we add them manually
@@ -161,7 +168,10 @@ def build_qiskit_qaoa_ansatz(            #sdk_name: str,
 
 
 
-    return ansatz_qiskit
+
+
+
+    return ansatz_qiskit, [angle_phase, angle_mixer]
 
 
 if __name__ == '__main__':

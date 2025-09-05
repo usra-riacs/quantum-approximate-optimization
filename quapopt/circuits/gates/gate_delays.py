@@ -1,15 +1,15 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from typing import List, Optional, Dict
 from enum import Enum
 import numpy as np
 from qiskit import QuantumCircuit
-from quapopt.data_analysis.data_handling import (COEFFICIENTS_TYPE,
-                                                 COEFFICIENTS_DISTRIBUTION,
+from quapopt.data_analysis.data_handling import (CoefficientsType,
+                                                 CoefficientsDistribution,
                                                  CoefficientsDistributionSpecifier,
-                                                 HAMILTONIAN_MODELS)
+                                                 HamiltonianModels)
 from quapopt.circuits import backend_utilities as bck_utils
 class DelayScheduleType(Enum):
     NONE = "NONE"
@@ -50,6 +50,9 @@ class DelaySchedulerBase:
     def __repr__(self):
         return self.get_string_description()
 
+    def generate_delays(self, number_of_delays:int):
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
 
 class DelaySchedulerNone(DelaySchedulerBase):
     """
@@ -63,8 +66,8 @@ class DelaySchedulerNone(DelaySchedulerBase):
                          delay_at_the_end=None,
                          add_barriers_to_layers=False)
 
-    def generate_delays(self, number_of_layers:int):
-        return [0.0] * number_of_layers
+    def generate_delays(self, number_of_delays:int):
+        return [0.0] * number_of_delays
 
 
     def get_string_description(self):
@@ -110,14 +113,14 @@ class DelaySchedulerLinear(DelaySchedulerBase):
         self._delay_base = value
 
 
-    def generate_delays(self, number_of_layers:int):
+    def generate_delays(self, number_of_delays:int):
         if self.delay_base == 0:
             return None
 
         if self._indices_ordering is None:
-            return [self.delay_base * i for i in range(number_of_layers)]
+            return [self.delay_base * i for i in range(number_of_delays)]
         else:
-            return [self.delay_base * self._indices_ordering[i] for i in range(number_of_layers)]
+            return [self.delay_base * self._indices_ordering[i] for i in range(number_of_delays)]
 
 
     def get_string_description(self):
@@ -128,9 +131,9 @@ class DelaySchedulerRandom(DelaySchedulerBase):
     Random delay scheduler that adds delays sampled from a specified distribution.
     """
     def __init__(self,
-                 coefficients_distribution:COEFFICIENTS_DISTRIBUTION = COEFFICIENTS_DISTRIBUTION.Uniform,
+                 coefficients_distribution:CoefficientsDistribution = CoefficientsDistribution.Uniform,
                  coefficients_distribution_properties:Optional[dict] = None,
-                 rng_seed:int=None,
+                 rng_seed:int=42,
                  delay_at_the_end:float=0.0,
                  add_barriers_to_layers:bool=False):
         """
@@ -148,11 +151,11 @@ class DelaySchedulerRandom(DelaySchedulerBase):
                          add_barriers_to_layers=add_barriers_to_layers)
 
         if coefficients_distribution_properties is None:
-            if coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Uniform:
+            if coefficients_distribution == CoefficientsDistribution.Uniform:
                 coefficients_distribution_properties = {'low':0, 'high':0.01}
-            elif coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Normal:
+            elif coefficients_distribution == CoefficientsDistribution.Normal:
                 coefficients_distribution_properties = {'mean':0.01, 'std':0.01}
-            elif coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Constant:
+            elif coefficients_distribution == CoefficientsDistribution.Constant:
                 coefficients_distribution_properties = {'value':0.01}
             else:
                 raise ValueError(f"Unknown CoefficientsDistributionName: {coefficients_distribution}")
@@ -162,22 +165,22 @@ class DelaySchedulerRandom(DelaySchedulerBase):
         self._coefficients_distribution = coefficients_distribution
         self._coefficients_distribution_properties = coefficients_distribution_properties
         self._distribution_description = CoefficientsDistributionSpecifier(
-            CoefficientsType=COEFFICIENTS_TYPE.CONTINUOUS,
+            CoefficientsType=CoefficientsType.CONTINUOUS,
             CoefficientsDistributionName=self._coefficients_distribution,
             CoefficientsDistributionProperties=self._coefficients_distribution_properties).get_description_string()
 
 
-    def generate_delays(self, number_of_layers:int):
-        if self._coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Uniform:
+    def generate_delays(self, number_of_delays:int):
+        if self._coefficients_distribution == CoefficientsDistribution.Uniform:
             delays = self._numpy_rng.uniform(low=self._coefficients_distribution_properties['low'],
                                              high=self._coefficients_distribution_properties['high'],
-                                             size=number_of_layers)
-        elif self._coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Normal:
+                                             size=number_of_delays)
+        elif self._coefficients_distribution == CoefficientsDistribution.Normal:
             delays = self._numpy_rng.normal(loc=self._coefficients_distribution_properties['mean'],
                                             scale=self._coefficients_distribution_properties['std'],
-                                            size=number_of_layers)
-        elif self._coefficients_distribution == COEFFICIENTS_DISTRIBUTION.Constant:
-            delays = np.full(shape=number_of_layers,
+                                            size=number_of_delays)
+        elif self._coefficients_distribution == CoefficientsDistribution.Constant:
+            delays = np.full(shape=number_of_delays,
                              fill_value=self._coefficients_distribution_properties['value'])
         else:
             raise ValueError(f"Unknown CoefficientsDistributionName: {self._coefficients_distribution}")
@@ -212,11 +215,7 @@ def add_delays_to_circuit_layers(quantum_circuit:QuantumCircuit,
 
 
     if delay_scheduler is None:
-        if for_visualization:
-            _delay_base = 1.0
-        else:
-            _delay_base = 0.01
-        delay_scheduler = DelaySchedulerLinear(delay_base=_delay_base)
+        return quantum_circuit.copy()
 
     #handle trivial cases
     if delay_scheduler.delay_type == DelayScheduleType.NONE:
@@ -235,7 +234,7 @@ def add_delays_to_circuit_layers(quantum_circuit:QuantumCircuit,
         circuit_layer = dag_to_circuit(circuit_layer['graph'])
         circuit_layer_delayed = QuantumCircuit(quantum_circuit.num_qubits,
                                                number_of_qubits)
-        delays_here = delay_scheduler.generate_delays(number_of_layers=len(circuit_layer.data))
+        delays_here = delay_scheduler.generate_delays(number_of_delays=len(circuit_layer.data))
         if delays_here is None:
             delays_here = [0.0] * len(circuit_layer.data)
 
@@ -246,7 +245,6 @@ def add_delays_to_circuit_layers(quantum_circuit:QuantumCircuit,
 
             if delay_length != 0.0:
                 if for_visualization and delay_scheduler.delay_type == DelayScheduleType.LINEAR:
-
                     #Linear schedule can be visualized nicely.
                     for qubit in qubits_instr:
                         for _ in range(idx_instr):

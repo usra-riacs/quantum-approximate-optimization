@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 import time
 from typing import List, Optional, Callable, Dict, Any, Union, Tuple
 
@@ -26,7 +26,7 @@ from quapopt.meta_algorithms.NDAR import (AttractorModel,
                                           NDARIterationResult)
 from quapopt.meta_algorithms.NDAR.NDARRunner import NDARRunner
 from quapopt.optimization import EnergyResultMain
-from quapopt.optimization.QAOA import QAOAResultsLogger
+from quapopt.data_analysis.data_handling import ResultsLogger
 from quapopt.optimization.QAOA.implementation.QAOARunnerSampler import QAOARunnerSampler
 from quapopt.optimization.QAOA.simulation.QAOARunnerExpValues import QAOARunnerExpValues
 
@@ -39,87 +39,6 @@ from quapopt.optimization.parameter_setting.non_adaptive_optimization.NonAdaptiv
 from quapopt.optimization.parameter_setting.variational.scipy_tools.ScipyOptimizerWrapped import ScipyOptimizerWrapped
 from optuna.samplers import BaseSampler as BaseSamplerOptuna
 
-
-# TODOO(FBM): make it a static method for later
-# def gather_NDAR_qaoa_results(cost_hamiltonian: ClassicalHamiltonian,
-#                              logger_kwargs_ndar: Dict[str, Any],
-#                              data_type: BaseNameDataType,
-#                              table_name: str = None):
-#     qaoa_results_logger = QAOAResultsLogger(**{'cost_hamiltonian': cost_hamiltonian},
-#                                             **logger_kwargs_ndar)
-#
-#     io_handler = qaoa_results_logger.io_handler
-#     directory_subpath = qaoa_results_logger._get_standard_sub_path_of_data_type(datatype=data_type)
-#
-#     main_name = io_handler.get_full_table_name(table_name=table_name,
-#                                                data_type=data_type)
-#     load_dir = io_handler.get_save_directory(directory_subpath=directory_subpath)
-#
-#     # The files will be in load_dir. Now we need to look for all files with the same "main_name" but differing by
-#     # the iteration number.
-#
-#     # We will look for the files with the same main_name and then we will sort them by the iteration number.
-#     # Then we will load them and concatenate them.
-#     dfs_all = []
-#     for file in os.listdir(load_dir):
-#         # The file does not necessarily start with "main_name", it has to just contain in somewhere, so we need
-#         # to check that.
-#         check_if_present = re.search(main_name, file)
-#
-#         if check_if_present:
-#             # This should return integer or None
-#             iteration_number = search_for_standard_variable_value_in_string(string=file,
-#                                                                             base_name=SNV.NDARIteration)
-#             if iteration_number is None:
-#                 # THis is pathological
-#                 raise ValueError(f"Could not find the iteration number in the file {file}")
-#
-#             df_i = read_results_standardized(full_path=f"{load_dir}/{file}", )
-#             # I want NDAR iteration to actually be the first column
-#             if SNV.NDARIteration.id_long not in df_i.columns:
-#                 df_i.insert(0, SNV.NDARIteration.id_long, iteration_number)
-#             dfs_all.append(df_i)
-#
-#     df_full = pd.concat(dfs_all, axis=0)
-#     df_full.sort_values(by=SNV.NDARIteration.id_long, inplace=True)
-#     return df_full
-
-# TODO(FBM): should create NDARResultsLogger or something like thi.s
-
-def gather_NDAR_qaoa_results(input_hamiltonian_representations: List[ClassicalHamiltonian],
-                             sampler_class: type(QAOARunnerSampler) | type(QAOARunnerExpValues),
-                             logger_kwargs: dict,
-                             data_type: Optional[SNDT] = None):
-    base_sampler = sampler_class(hamiltonian_representations_cost=input_hamiltonian_representations,
-                                 store_n_best_results=1,
-                                 logger_kwargs=logger_kwargs,
-                                 logging_level=LoggingLevel.VERY_DETAILED)
-
-    if data_type is None:
-        data_type = SNDT.NDAROverview
-
-    ndar_iteration = 0
-    all_dfs_found = []
-    while True:
-        base_kwargs = logger_kwargs
-        if base_kwargs is None:
-            base_kwargs = {}
-        if 'table_name_suffix' not in base_kwargs:
-            base_kwargs['table_name_suffix'] = ''
-
-        res_logger = base_sampler.results_logger.copy()
-        res_logger.extend_table_name_suffix(additional_part=f"{SNV.NDARIteration.id}{MKVS}{ndar_iteration}",
-                                            appending=True)
-
-        df_i = res_logger.read_results(data_type=data_type,
-                                       return_none_if_not_found=True)
-        if df_i is None:
-            break
-
-        all_dfs_found.append(df_i)
-        ndar_iteration += 1
-
-    return pd.concat(all_dfs_found, axis=0)
 
 
 class NDARRunnerQAOA(NDARRunner):
@@ -174,7 +93,7 @@ class NDARRunnerQAOA(NDARRunner):
         return self._current_sampler
 
     @property
-    def results_logger(self) -> Optional[QAOAResultsLogger]:
+    def results_logger(self) -> Optional[ResultsLogger]:
         """Get current QAOA results logger, creating one if needed."""
         if self._current_sampler is not None:
             return self._current_sampler.results_logger
@@ -224,11 +143,23 @@ class NDARRunnerQAOA(NDARRunner):
         if self._logging_level in [None, LoggingLevel.NONE]:
             return
 
+        base_kwargs = self._logger_kwargs
+        if base_kwargs is None:
+            base_kwargs = {}
+
+        if 'table_name_suffix' in base_kwargs:
+            table_name_suffix = base_kwargs['table_name_suffix']
+        else:
+            table_name_suffix = ''
+
         ndar_overview_df = ndar_result.to_dataframe_main()
-        ndar_overview_datatype = SNDT.NDAROverview
         self.results_logger.write_results(dataframe=ndar_overview_df,
-                                          data_type=ndar_overview_datatype,
-                                          additional_annotation_dict=additional_annotations)
+                                          data_type=SNDT.NDAROverview,
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_suffix=table_name_suffix, #since it's overview of NDAR, we don't want iteration index in table name
+                                          )
+
+
 
     def _apply_genetic_algorithm_to_samples(self,
                                             samples,

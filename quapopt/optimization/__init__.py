@@ -1,8 +1,9 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import itertools
+import warnings
 from typing import Union, List, Tuple, Optional, Dict, Any
 
 import numpy as np
@@ -17,13 +18,11 @@ except(ImportError, ModuleNotFoundError):
 from pathlib import Path
 
 from quapopt.data_analysis.data_handling import (StandardizedSpecifier,
-                                                 ResultsLogger,
-                                                 MAIN_KEY_SEPARATOR as MKS,
-                                                 MAIN_KEY_VALUE_SEPARATOR as MKVS, DEFAULT_TABLE_NAME_PARTS_SEPARATOR
+                                                 ResultsLogger
                                                  )
-from quapopt.data_analysis.data_handling.io_utilities.logging_config import LoggingLevel, \
+from quapopt.data_analysis.data_handling import LoggingLevel, \
     HamiltonianOptimizationLoggerConfig
-from quapopt.data_analysis.data_handling import STANDARD_NAMES_VARIABLES as SNV
+from quapopt.data_analysis.data_handling import STANDARD_NAMES_VARIABLES as SNV, STANDARD_NAMES_DATA_TYPES as SNDT
 from quapopt.hamiltonians.representation import HamiltonianListRepresentation as HLR
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian as CLH, \
     ClassicalHamiltonian
@@ -159,13 +158,11 @@ class HamiltonianOptimizer:
         self._update_history(*args, **kwargs)
 
     def reinitialize_logger(self,
-                             *args,
+                            *args,
                             **kwargs
-                             ):
+                            ):
 
         raise NotImplementedError("This method should be implemented in a subclass")
-
-
 
         # self.initialize_results_logger(
         #     table_name_prefix=table_name_prefix,
@@ -380,7 +377,7 @@ class EnergyResultMain:
                   f"{SNV.EnergyBest.id_long}": [float(self.energy_best) if self.energy_best is not None else None],
                   f"{SNV.BitstringBest.id_long}": [
                       tuple(self.bitstring_best) if self.bitstring_best is not None else None]},
-            )
+        )
 
 
 class BestResultsContainerBase:
@@ -567,34 +564,12 @@ class HamiltonianOptimizationResultsLogger(ResultsLogger):
         :param experiment_set_id: ID of the experiment set
         :param experiment_instance_id: ID of this experiment instance
         """
-
-        # Extract Hamiltonian information
-        cost_hamiltonian_class_specifier = cost_hamiltonian.hamiltonian_class_specifier
-        cost_hamiltonian_instance_specifier = cost_hamiltonian.hamiltonian_instance_specifier
-
-        # Build folder hierarchy including Hamiltonian class description
-        class_desc = cost_hamiltonian_class_specifier.get_description_string()
-        if experiment_folders_hierarchy is None:
-            experiment_folders_hierarchy = []
-        if class_desc not in experiment_folders_hierarchy:
-            experiment_folders_hierarchy = experiment_folders_hierarchy + [class_desc]
-
-        # Build table name with Hamiltonian instance information
-        if cost_hamiltonian_instance_specifier is None:
-            ham_desc = "HamInstance=UNKNOWN"
-        else:
-            ham_desc = cost_hamiltonian_instance_specifier.get_description_string()
-
-        _tnps = DEFAULT_TABLE_NAME_PARTS_SEPARATOR
-
-        if table_name_prefix is not None:
-            #check if ham_desc is already in table_name_prefix
-            parsed_table_name_prefix = self.parse_table_name(full_table_name=table_name_prefix)
-
-            if ham_desc not in parsed_table_name_prefix:
-                table_name_prefix = f"{table_name_prefix}{_tnps}{SNV.CostHamiltonianInstance.id}{MKVS}{ham_desc}"
-        else:
-            table_name_prefix = f"{SNV.CostHamiltonianInstance.id}{_tnps}{ham_desc}"
+        warnings.warn(
+            "HamiltonianOptimizationResultsLogger is deprecated. Use ResultsLogger instead and handle "
+            "metadata in runner/analyzer classes.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
         # Create config using the new architecture
         config = HamiltonianOptimizationLoggerConfig(
@@ -607,13 +582,30 @@ class HamiltonianOptimizationResultsLogger(ResultsLogger):
             experiment_set_name=experiment_set_name,
             experiment_set_id=experiment_set_id,
             experiment_instance_id=experiment_instance_id,
+            experiment_specifier=experiment_specifier
         )
-
-        # Merge with any additional experiment specifier if provided
-        if experiment_specifier is not None:
-            merged_config_specifier = config.experiment_specifier.merge_with(other=experiment_specifier)
-            # Update config with merged specifier
-            object.__setattr__(config, 'experiment_specifier', merged_config_specifier)
 
         # Initialize parent class with config
         super().__init__(config=config)
+
+
+    def __post_init__(self):
+        # in post-init, we wish to save shared metadata regarding Hamiltonian class and instance
+        # to the logger's specifier
+        hamiltonian_class_description:HamiltonianOptimizationLoggerConfig = self.config.CostHamiltonianClass.get_description_string()
+        hamiltonian_instance_description = self.config.CostHamiltonianInstance.get_description_string()
+        shared_metadata = pd.DataFrame(data={"CostHamiltonianClass": [hamiltonian_class_description],
+                                             "CostHamiltonianInstance": [hamiltonian_instance_description]})
+        try:
+            # self._write_shared_metadata(shared_metadata=shared_metadata,
+            #                             metadata_data_type=SNDT.CostHamiltonianMetadata,
+            #                             overwrite_existing=False, )
+            #
+
+            self.write_metadata(metadata=shared_metadata,
+                               shared_across_experiment_set=True,
+                               data_type=SNDT.CostHamiltonianMetadata,
+                               overwrite_existing_non_csv=False)
+
+        except(ValueError, KeyError):
+            print("Hamiltonian metadata already exists, not overwriting.")

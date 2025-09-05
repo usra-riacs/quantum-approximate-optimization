@@ -1,15 +1,16 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import copy
 import time
 from typing import Tuple, Union, Optional, List, Callable, Any
 import numpy as np
 import pydantic as pyd
+from prompt_toolkit.key_binding.bindings.named_commands import self_insert
 
+from quapopt import ancillary_functions as anf
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 from quapopt.data_analysis.data_handling import (STANDARD_NAMES_VARIABLES as SNV,
                                                  HamiltonianInstanceSpecifierGeneral,
@@ -20,6 +21,7 @@ from quapopt.hamiltonians.representation.transformations import (apply_bitflip_t
                                                                  apply_permutation_to_hamiltonian,
                                                                  HamiltonianTransformation,
                                                                  concatenate_hamiltonian_transformations)
+
 _REPRESENTATION_DESCRIPTION_LIST = """Classical Hamiltonian represented as a list of interactions.
                                      Each interaction is a tuple of the form (c, (i,j,k,...)) 
                                      where i, j, k, ... are qubit indices
@@ -164,6 +166,13 @@ class ClassicalHamiltonianBase:
 
         self._two_local_properties = _two_local_properties
 
+    def __repr__(self):
+        return f"Classical Hamiltonian with {self.number_of_qubits} qubits\n" \
+               f"Localities: {self.localities}\n" \
+                f"Class: {self._hamiltonian_class_specifier.get_description_string()}\n" \
+                f"Instance: {self._hamiltonian_instance_specifier.get_description_string()}\n" \
+               f"Known spectral data: {self.get_known_energies_dict()}" \
+               f"Number of applied transformations: {len(self.applied_transformations)}"
 
 
     def get_known_energies_dict(self):
@@ -278,13 +287,14 @@ class ClassicalHamiltonianBase:
         return None
 
 
-
-
-
-
-
     def update_hamiltonian_representation(self,
                                            new_representation:HamiltonianListRepresentation):
+        """
+        WARNING: this assumes we DO NOT CHANGE the localities of the Hamiltonian!
+        This class is useful when applying gauge transformations to the same Hamiltonian.
+        :param new_representation:
+        :return:
+        """
         self._update_hamiltonian_representation(new_representation=new_representation)
 
 
@@ -360,6 +370,13 @@ class ClassicalHamiltonianBase:
     def _update_hamiltonian_representation(self,
                                            new_representation:HamiltonianListRepresentation,
                                            bitflip_for_cost_function_initialization:Tuple[int,...]=None):
+        """
+        WARNING: this assumes we DO NOT CHANGE the localities of the Hamiltonian!
+        This class is useful when applying gauge transformations to the same Hamiltonian.
+        :param new_representation:
+        :param bitflip_for_cost_function_initialization:
+        :return:
+        """
 
         if bitflip_for_cost_function_initialization is None:
             if self.is_two_local:
@@ -415,11 +432,42 @@ class ClassicalHamiltonianBase:
         if backend is None:
             backend = self._default_backend
 
-        return convert_list_representation_to_adjacency_matrix(hamiltonian_list_representation=self.hamiltonian,
-                                                               matrix_type=matrix_type,
-                                                               backend=backend,
-                                                               number_of_qubits=self.number_of_qubits,
-                                                               precision=precision)
+        couplings = self.couplings
+        local_fields = self.local_fields
+
+        if couplings is None or (local_fields is None and 1 in self.localities):
+            return convert_list_representation_to_adjacency_matrix(hamiltonian_list_representation=self.hamiltonian,
+                                                                   matrix_type=matrix_type,
+                                                                   backend=backend,
+                                                                   number_of_qubits=self.number_of_qubits,
+                                                                   precision=precision)
+
+
+
+        if backend == 'numpy':
+            import numpy as bck
+        elif backend == 'cupy':
+            import cupy as bck
+        else:
+            raise ValueError("Backend not recognized")
+
+        couplings = anf.convert_cupy_numpy_array(array=couplings,
+                                                 output_backend=backend)
+
+
+        adjacency_matrix = bck.array(couplings.copy())
+        if 1 in self.localities:
+            local_fields = anf.convert_cupy_numpy_array(array=local_fields,
+                                                        output_backend=backend)
+            bck.fill_diagonal(adjacency_matrix, local_fields)
+
+        return adjacency_matrix
+
+
+
+
+
+
 
 
     def get_couplings_and_local_fields(self,

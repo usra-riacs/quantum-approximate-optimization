@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
+
 
 """
 Configuration dataclasses for the logging system.
@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
+from quapopt import ancillary_functions as anf
+
+from quapopt.data_analysis.data_handling.schemas.naming import (
     StandardizedSpecifier,
     HamiltonianOptimizationSpecifier,
     MAIN_KEY_SEPARATOR as MKS,
@@ -22,11 +23,10 @@ from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
     DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
 )
 from quapopt.data_analysis.data_handling.io_utilities import DEFAULT_STORAGE_DIRECTORY
-from quapopt.data_analysis.data_handling.standard_names import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                                STANDARD_NAMES_VARIABLES as SNV,
-                                                                )
+from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
+                                                         STANDARD_NAMES_VARIABLES as SNV,
+                                                         )
 from quapopt.data_analysis.data_handling.io_utilities import IOMixin
-
 class LoggingLevel(enum.Enum):
     """Enumeration for different logging verbosity levels."""
     NONE = 0
@@ -40,7 +40,7 @@ class LoggingLevel(enum.Enum):
     VERY_DETAILED = 4
 
 
-@dataclass(frozen=True)
+@dataclass
 class LoggerConfig:
     """
     Base configuration dataclass for all logger types.
@@ -61,15 +61,15 @@ class LoggerConfig:
     def __post_init__(self):
         """Auto-generate IDs if not provided."""
         if self.directory_main is None:
-            object.__setattr__(self, 'base_path', Path(""))
+            self.base_path = Path("")
 
 
-@dataclass(frozen=True)
+@dataclass
 class ExperimentLoggerConfig(LoggerConfig):
     """
     Configuration for experiment-based logging with standardized specifiers.
     """
-    experiment_specifier: Optional[StandardizedSpecifier] = field(default=StandardizedSpecifier(), init=True)
+    experiment_specifier: Optional[StandardizedSpecifier] = field(default_factory=StandardizedSpecifier, init=True)
     experiment_folders_hierarchy: List[str] = field(default_factory=list)
 
     experiment_set_name: Optional[str] = None
@@ -78,21 +78,25 @@ class ExperimentLoggerConfig(LoggerConfig):
     experiment_instance_id: Optional[str] = None
 
     def __post_init__(self):
-        if self.experiment_set_name is None:
-            object.__setattr__(self, 'experiment_set_name', f"ExpSet{anf.get_current_date()}")
+
+        # Call parent __post_init__
+        super().__post_init__()
+
+
         if self.experiment_set_id is None:
-            object.__setattr__(self, 'experiment_set_id', anf.create_random_uuid())
+            self.experiment_set_id = anf.create_random_uuid()
+
+        if self.experiment_set_name is None or self.experiment_set_name.lower()=='none':
+            self.experiment_set_name = f"{self.experiment_set_id}"
+
+
         if self.experiment_instance_id is None:
-            object.__setattr__(self, 'experiment_instance_id', anf.create_random_uuid())
+            # Generate a unique ID for the experiment instance
+            self.experiment_instance_id = anf.create_random_uuid()
+        
 
 
-
-
-
-
-
-
-@dataclass(frozen=True)
+@dataclass
 class HamiltonianOptimizationLoggerConfig(ExperimentLoggerConfig):
     """
     Configuration for Hamiltonian-specific logging.
@@ -120,14 +124,22 @@ class HamiltonianOptimizationLoggerConfig(ExperimentLoggerConfig):
         cost_hamiltonian_class_specifier = cost_hamiltonian.hamiltonian_class_specifier
         cost_hamiltonian_instance_specifier = cost_hamiltonian.hamiltonian_instance_specifier
 
+
         # Store only the extracted specifiers (not the full Hamiltonian)
-        object.__setattr__(self, 'CostHamiltonianClass', cost_hamiltonian_class_specifier)
-        object.__setattr__(self, 'CostHamiltonianInstance', cost_hamiltonian_instance_specifier)
+        self.CostHamiltonianClass = cost_hamiltonian_class_specifier
+        self.CostHamiltonianInstance = cost_hamiltonian_instance_specifier
 
         # call super
         super().__init__(**kwargs)
 
     def __post_init__(self):
+
+
+        #call super
+        super().__post_init__()
+
+
+
         cost_hamiltonian_class_specifier = self.CostHamiltonianClass
         cost_hamiltonian_instance_specifier = self.CostHamiltonianInstance
         # Create Hamiltonian-specific experiment specifier
@@ -141,9 +153,7 @@ class HamiltonianOptimizationLoggerConfig(ExperimentLoggerConfig):
         # Merge with the Hamiltonian specifier
         merged_specifier = existing_specifier.merge_with(other=hamiltonian_experiment_specifier)
 
-        # Set the merged specifier
-        object.__setattr__(self, 'experiment_specifier', merged_specifier)
-
+        self.experiment_specifier = merged_specifier
 
 
     def __repr__(self):
@@ -153,6 +163,8 @@ class HamiltonianOptimizationLoggerConfig(ExperimentLoggerConfig):
         return (f"HamiltonianOptimizationLoggerConfig for Hamiltonian:\n "
                 f"Class:{class_specifier.get_description_string()};\n "
                 f"Instance:{instance_specifier.get_description_string()}")
+
+
 
 if __name__ == '__main__':
     from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
@@ -190,10 +202,14 @@ if __name__ == '__main__':
         CostHamiltonianInstance=_his
     )
 
-    ansatz_specifier = AnsatzSpecifier(phase_hamiltonian_class_specifier=_hcs2,
-                                      phase_hamiltonian_instance_specifier=_his2,
-                                      depth=2,
-                                      )
+    ansatz_specifier = AnsatzSpecifier(PhaseHamiltonianClass=_hcs2,
+                                       PhaseHamiltonianInstance=_his2,
+                                       Depth=2,
+                                       )
+    print(ansatz_specifier)
+    print(ansatz_specifier.PhaseSeparatorType)
+
     merged_specifier = hamiltonian_experiment_specifier.merge_with(other=ansatz_specifier)
 
-    print(merged_specifier)
+
+    #print(merged_specifier)

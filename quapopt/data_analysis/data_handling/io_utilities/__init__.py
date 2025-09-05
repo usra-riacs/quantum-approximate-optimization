@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 import copy
 import csv
 import os
@@ -13,19 +13,20 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
-from quapopt.data_analysis.data_handling.standard_names import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                                HamiltonianClassSpecifierGeneral,
-                                                                HamiltonianInstanceSpecifierGeneral, )
-from quapopt.data_analysis.data_handling.standard_names import STANDARD_NAMES_VARIABLES as SNV
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (BaseNameDataType, )
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (
+from quapopt import ancillary_functions as anf
+
+from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
+                                                         HamiltonianClassSpecifierGeneral,
+                                                         HamiltonianInstanceSpecifierGeneral, )
+from quapopt.data_analysis.data_handling.schemas import STANDARD_NAMES_VARIABLES as SNV
+from quapopt.data_analysis.data_handling.schemas.naming import (BaseNameDataType, )
+from quapopt.data_analysis.data_handling.schemas.naming import (
     MAIN_KEY_SEPARATOR as MKS,
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
     DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
 )
-from quapopt.data_analysis.data_handling.standard_names.data_hierarchy import (MAIN_KEY_VALUE_SEPARATOR as MKVS,
-                                                                               SUB_KEY_VALUE_SEPARATOR as SKVS)
+from quapopt.data_analysis.data_handling.schemas.naming import (MAIN_KEY_VALUE_SEPARATOR as MKVS,
+                                                                SUB_KEY_VALUE_SEPARATOR as SKVS)
 
 load_dotenv()
 
@@ -60,9 +61,8 @@ INTEGER_TUPLE_TYPES = [SNV.Bitflip.id, SNV.Bitflip.id_long,
                        ]
 
 
-def _string_mod_fun1(string:str|Path,
-                    suffix:str):
-
+def _string_mod_fun1(string: str | Path,
+                     suffix: str):
     input_format = type(string)
     string = str(string)
 
@@ -72,18 +72,15 @@ def _string_mod_fun1(string:str|Path,
         proper_suffix = suffix
     return input_format, string, proper_suffix
 
-def _string_mod_fun2(string:str|Path,
-                    input_format:type):
 
+def _string_mod_fun2(string: str | Path,
+                     input_format: type):
     if issubclass(input_format, Path):
         return Path(string)
     elif input_format == str:
         return string
     else:
         raise TypeError(f"Unsupported input type: {input_format}. Expected str or Path.")
-
-
-
 
 
 # def with_suffix_patch(string:str|Path,
@@ -100,8 +97,8 @@ def _string_mod_fun2(string:str|Path,
 #     return _string_mod_fun2(string=string,
 #                             input_format=input_format)
 
-def add_file_format_suffix(string: str|Path,
-                      suffix: str)->Path:
+def add_file_format_suffix(string: str | Path,
+                           suffix: str) -> Path:
     """
     A patch for the Path.with_suffix method to ensure it works correctly with strings that contain floats (i.e., they
     include dot characters so the Path.with_suffix method does not work correctly).
@@ -111,8 +108,7 @@ def add_file_format_suffix(string: str|Path,
     """
 
     input_format, string, proper_suffix = _string_mod_fun1(string=string,
-                                                            suffix=suffix)
-
+                                                           suffix=suffix)
 
     if not string.endswith(proper_suffix):
         string = string + proper_suffix
@@ -121,8 +117,8 @@ def add_file_format_suffix(string: str|Path,
                             input_format=input_format)
 
 
-def remove_file_format_suffix(string:str|Path,
-                                suffix:str):
+def remove_file_format_suffix(string: str | Path,
+                              suffix: str):
     input_format, string, proper_suffix = _string_mod_fun1(string=string,
                                                            suffix=suffix)
 
@@ -133,14 +129,11 @@ def remove_file_format_suffix(string:str|Path,
                             input_format=input_format)
 
 
-
-
 class IOMixin:
     """Mixin providing common path and filename generation utilities."""
 
     def copy(self):
         return copy.deepcopy(self)
-
 
     @classmethod
     def get_key_value_pair(cls,
@@ -298,7 +291,6 @@ class IOMixin:
         file_name = Path(file_name)
         return file_name.stem, file_name.suffix
 
-
     @classmethod
     def join_table_name_parts(cls,
                               table_name_parts: List[Optional[str]],
@@ -307,10 +299,7 @@ class IOMixin:
         joined_name = name_parts_separator.join(
             [part for part in table_name_parts if (part is not None and part != "")]) if table_name_parts else ""
 
-
         return joined_name
-
-
 
     @classmethod
     def get_full_table_name(cls,
@@ -318,16 +307,12 @@ class IOMixin:
                             data_type: Optional[SNDT] = None,
                             name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
 
-
-
         data_type_suffix = cls.get_data_type_suffix(data_type=data_type)
         if data_type_suffix not in table_name_parts:
             table_name_parts.append(data_type_suffix)
 
-
         return cls.join_table_name_parts(table_name_parts=table_name_parts,
-                                        name_parts_separator=name_parts_separator)
-
+                                         name_parts_separator=name_parts_separator)
 
     @classmethod
     def write_pickled_results(cls,
@@ -351,7 +336,7 @@ class IOMixin:
 
         file_path = Path(file_path)
         file_path = remove_file_format_suffix(string=file_path,
-                                                suffix='.pkl')
+                                              suffix='.pkl')
 
         if file_path.exists():
             if overwrite_if_exists:
@@ -367,6 +352,57 @@ class IOMixin:
             pickle.dump(object_to_save, f, pickle.HIGHEST_PROTOCOL)
 
     @classmethod
+    def write_json_results(cls,
+                           data: Any,
+                           full_path: str | Path,
+                           overwrite_existing: bool = False,
+                           add_timestamp_if_exists:bool=True):
+        """
+        Save metadata to a JSON file in a standardized format.
+        :param data:
+        :param full_path:
+        :param overwrite_existing:
+        :param add_timestamp_if_exists:
+
+        """
+        import json
+        full_path = Path(full_path)
+
+        full_path = add_file_format_suffix(string=full_path, suffix='.json')
+
+        if full_path.exists():
+            if not overwrite_existing:
+                raise ValueError(f"Metadata file already exists: {full_path}")
+            elif overwrite_existing:
+                # Remove existing file if overwrite is requested
+                full_path.unlink()
+            elif add_timestamp_if_exists:
+                full_path = full_path.with_name(f"{full_path.stem}_Time{MKVS}{time.strftime(f'%Y-%m-%d-%H-%M-%S')}{full_path.suffix}")
+
+
+
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Prepare metadata for JSON serialization
+        if isinstance(data, pd.DataFrame):
+            metadata_to_save = {
+                '_type': 'pandas_dataframe',
+                'data': data.to_dict('records'),
+                'columns': list(data.columns)
+            }
+        else:
+            metadata_to_save = data
+
+        # Save to JSON
+        with open(full_path, 'w') as f:
+            json.dump(metadata_to_save, f, indent=2, default=str)
+
+
+        return full_path
+
+
+
+    @classmethod
     def write_dataframe_results(cls,
                                 data: pd.DataFrame,
                                 full_path: str | Path):
@@ -376,13 +412,12 @@ class IOMixin:
         :param full_path:
         :return:
         """
-        #print('timestop 3', full_path)
+        # print('timestop 3', full_path)
         full_path = Path(full_path)
 
         full_path = add_file_format_suffix(string=full_path, suffix='.csv')
 
-        #print('timestop 4', full_path)
-
+        # print('timestop 4', full_path)
 
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -398,17 +433,26 @@ class IOMixin:
     def write_results(cls,
                       data: pd.DataFrame | Any,
                       full_path: str | Path,
-                      format_type: str = 'dataframe'):
+                      format_type: str = 'dataframe',
+                      overwrite_existing_non_csv:bool=False,
+                      add_timestamp_if_exists:bool=True
+                      ):
 
-        #print('timestop 2', full_path)
-
+        # print('timestop 2', full_path)
 
         if format_type.lower() in ['dataframe']:
             return cls.write_dataframe_results(data=data,
                                                full_path=full_path)
         elif format_type.lower() in ['pickle']:
             return cls.write_pickled_results(object_to_save=data,
-                                             file_path=full_path)
+                                             file_path=full_path,
+                                             overwrite_if_exists=overwrite_existing_non_csv)
+        elif format_type.lower() in ['json']:
+            return cls.write_json_results(data=data,
+                                          full_path=full_path,
+                                          overwrite_existing=overwrite_existing_non_csv,
+                                          add_timestamp_if_exists=True)
+
         else:
             raise ValueError(f"Unsupported format_type: {format_type}. Supported types are 'dataframe' and 'pickle'.")
 
@@ -684,11 +728,14 @@ class IOHamiltonianMixin(IOMixin):
     def _write_hamiltonian_to_text_file(cls,
                                         hamiltonian: List[Tuple[Union[float, int], Tuple[int, ...]]],
                                         file_path: str | Path,
-                                        overwrite_if_exists: bool = False) -> None:
+                                        overwrite_if_exists: bool = False,
+                                        ignore_if_exists:bool=True) -> None:
         """
         Write a hamiltonian to a text file in a standard format
         :param hamiltonian:
         :param file_path:
+        :param overwrite_if_exists:
+        :param ignore_if_exists:
         :return:
         """
 
@@ -697,10 +744,14 @@ class IOHamiltonianMixin(IOMixin):
 
         if file_path.exists():
             if overwrite_if_exists:
+                print("Hamiltonian exists, overwriting.")
                 file_path.unlink()
+            elif ignore_if_exists:
+                print("Hamiltonian exists, not overwriting.")
+                return
             else:
                 raise FileExistsError(f"File {file_path} already exists. "
-                                      f"Use 'overwrite_if_exists' to handle this.")
+                                      f"Use 'overwrite_if_exists' to handle this or 'ignore_if_exists' to ignore it.")
 
         with open(file_path, 'w') as file:
             for weight, edge in hamiltonian:
@@ -744,7 +795,7 @@ class IOHamiltonianMixin(IOMixin):
 
     @classmethod
     def _write_hamiltonian_solutions(cls,
-                                     file_path_main: str|Path,
+                                     file_path_main: str | Path,
                                      known_energies_dict: dict, ):
         file_path_main = str(file_path_main)
 

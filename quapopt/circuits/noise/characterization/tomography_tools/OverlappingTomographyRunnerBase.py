@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 import copy
 import itertools
 import time
@@ -12,13 +12,14 @@ from qiskit.primitives.containers.bit_array import BitArray as QiskitBitArray
 from qiskit.transpiler.passmanager import StagedPassManager
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_aer.backends.aer_simulator import AerSimulator
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
-from quapopt.circuits.backend_utilities import (attempt_to_run_qiskit_circuit,
-                                                get_counts_from_bit_array,
-                                                create_qiskit_sampler_with_session)
+from quapopt import ancillary_functions as anf
+
+from quapopt.circuits.backend_utilities import (attempt_to_run_qiskit_circuits,
+                                                get_counts_from_bit_array)
+from quapopt.circuits.backend_utilities.qiskit import QiskitSessionManagerMixin
 from quapopt.circuits.gates import AbstractProgramGateBuilder, CircuitQiskit, AbstractCircuit
 from quapopt.circuits.noise.characterization.tomography_tools import (TomographyType,
                                                                       TomographyGatesType,
@@ -28,7 +29,7 @@ from quapopt.data_analysis.data_handling import (STANDARD_NAMES_DATA_TYPES as SN
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import ResultsLogger, LoggingLevel
 
 
-class OverlappingTomographyRunnerBase:
+class OverlappingTomographyRunnerBase(QiskitSessionManagerMixin):
     """
     This class is used to generate and run overlapping tomography_tools circuits.
     The general idea:
@@ -55,14 +56,22 @@ class OverlappingTomographyRunnerBase:
                  sdk_name: str,
                  tomography_type: TomographyType,
                  tomography_gates_type: TomographyGatesType,
+                 simulation: bool,
+
                  numpy_rng_seed: int = None,
                  qubit_indices_physical: tuple = None,
                  parametric=False,
                  results_logger_kwargs: Optional[Dict] = None,
                  logging_level: LoggingLevel = LoggingLevel.DETAILED,
                  pass_manager_qiskit_indices: StagedPassManager = None,
-                 number_of_qubits_device_qiskit: int = None
+                 number_of_qubits_device_qiskit: int = None,
 
+                 # qiskit-specific kwargs
+                 qiskit_backend=None,
+                 mock_context_manager_if_simulated: bool = True,
+                 session_ibm=None,
+                 qiskit_sampler_options: Optional[dict] = None,
+                 noiseless_simulation: bool = False,
                  ):
         """
 
@@ -81,13 +90,16 @@ class OverlappingTomographyRunnerBase:
 
         :param tomography_gates_type:
         Supported values:
-        - PAULI = random Pauli states (detector tomography_tools) or measurements (state tomography_tools) or both (process tomography_tools)
+        - PAULI = random Pauli states (detector tomography) or measurements (state tomography) or both (process tomography_tools)
 
         :param numpy_rng_seed: seed for the random number generator. If None, a random seed will be used.
         :param qubit_indices_physical: Indices of the qubits on which the circuits will be run. If None, the qubits will be
         numbered from 0 to number_of_qubits - 1.
         :param parametric: HOLDER FOR FUTURE DEVELOPMENT TODO(FBM): Implement parametric tomography_tools
         """
+
+        if sdk_name.lower() in ['qiskit']:
+            assert qiskit_backend is not None, "Qiskit backend must be provided for Qiskit SDK"
 
         if parametric:
             # TODO FBM: maybe implement this
@@ -120,37 +132,35 @@ class OverlappingTomographyRunnerBase:
         # TODO FBM: maybe implement this
         if sdk_name in ['qiskit'] and parametric:
             parametric = False
-            print("Parametric tomography_tools is not supported in Qiskit yet. Setting parametric to False.")
+            print("Parametric tomography is not supported in Qiskit yet. Setting parametric to False.")
 
         elif parametric:
-            raise NotImplementedError("Parametric tomography_tools is not supported in this SDK yet.")
+            raise NotImplementedError("Parametric tomography is not supported in this SDK yet.")
 
         self._parametric = parametric
 
         self._logging_level = logging_level
 
         if logging_level is not None and logging_level != LoggingLevel.NONE:
-            #TODO(FBM): add default results logger kwargs
+            # TODO(FBM): add default results logger kwargs
             if results_logger_kwargs is None:
                 raise NotImplementedError("Results logger kwargs must be provided if logging level is not NONE.")
-                experiment_folders_hierarchy = ['DefaultResultsFolder',
-                                                'NoiseCharacterization',
-                                                "OverlappingTomography",
-                                                "DefaultSubFolder"]
-                uuid = anf.create_random_uuid()
-                directory_main = None
-                table_name_prefix = None
-                table_name_main = 'OverlappingTomographyResults'
-                results_logger_kwargs = {'experiment_folders_hierarchy': experiment_folders_hierarchy,
-                                         'uuid': uuid,
-                                         'base_path': directory_main,
-                                         'table_name_prefix': table_name_prefix,
-                                         'table_name_prefix': table_name_main}
 
         self._results_logger = ResultsLogger(**results_logger_kwargs) if results_logger_kwargs is not None else None
 
         if self._results_logger is not None:
             self._results_logger.set_logging_level(level=logging_level)
+
+        if self._sdk_name == 'qiskit':
+
+            # Initialize session management via mixin
+            self._init_session_management(
+                qiskit_backend=qiskit_backend,
+                simulation=simulation,
+                mock_context_manager_if_simulated=mock_context_manager_if_simulated,
+                session_ibm=session_ibm,
+                qiskit_sampler_options=qiskit_sampler_options,
+                noiseless_simulation=noiseless_simulation)
 
     @property
     def results_logger(self):
@@ -170,7 +180,8 @@ class OverlappingTomographyRunnerBase:
 
     def append_measurements(self,
                             circuit: AbstractCircuit,
-                            qubit_indices: Optional[List[int]] = None) -> AbstractCircuit:
+                            qubit_indices: Optional[List[int]] = None,
+                            reverse_indices:bool=False) -> AbstractCircuit:
         """
         This function appends measurement instructions to the circuit.
         :param circuit:
@@ -180,7 +191,8 @@ class OverlappingTomographyRunnerBase:
             qubit_indices = self._qubit_indices_physical
 
         circuit = self._program_gate_builder.add_measurements(quantum_circuit=circuit,
-                                                              qubit_indices=qubit_indices)
+                                                              qubit_indices=qubit_indices,
+                                                              reverse_indices=reverse_indices)
         return circuit
 
     def append_delays(self,
@@ -553,25 +565,21 @@ class OverlappingTomographyRunnerBase:
                                                                            middle_circuit=middle_circuit,
                                                                            prepended_symbols_list=prepended_symbols_list)
 
-    def run_tomography_circuits_qiskit_session(self,
-                                               tomography_circuits: List[Tuple[Tuple[int, ...], CircuitQiskit]],
-                                               qiskit_backend,
-                                               simulation: bool,
-                                               number_of_shots,
-                                               qiskit_sampler_options: Optional[dict] = None,
-                                               qiskit_pass_manager=None,
-                                               logging_metadata: Optional[List[pd.DataFrame]] = None,
-                                               logging_annotation: Optional[List[dict]] = None,
-                                               logging_table_names: Optional[List[str]] = None,
-                                               show_progress_bar=True,
-                                               max_attempts_run=5,
-                                               mock_context_manager_if_simulated=True,
-                                               return_results: bool = True,
-                                               metadata_experiment_set: Optional[pd.DataFrame] = None,
-                                               confirm_runs_if_on_hardware: bool = True,
-                                               batched_execution: bool = False,
-                                               progress_bar_in_notebook: bool = True
-                                               ) -> Optional[Tuple[
+    def run_tomography_circuits_qiskit(self,
+                                       tomography_circuits: List[Tuple[Tuple[int, ...], CircuitQiskit]],
+                                       number_of_shots,
+                                       qiskit_pass_manager=None,
+                                       logging_metadata: Optional[List[pd.DataFrame]] = None,
+                                       logging_annotation: Optional[List[dict]] = None,
+                                       logging_table_names: Optional[List[str]] = None,
+                                       show_progress_bar=True,
+                                       max_attempts_run=5,
+                                       return_results: bool = True,
+                                       metadata_experiment_set: Optional[pd.DataFrame] = None,
+                                       confirm_runs_if_on_hardware: bool = True,
+                                       batched_execution: bool = False,
+                                       progress_bar_in_notebook: bool = True,
+                                       ) -> Optional[Tuple[
         List[Tuple[int, ...]], List[Tuple[np.ndarray, np.ndarray]]]]:
         """
         This function runs the tomography circuits on the given backend_computation.
@@ -622,7 +630,7 @@ class OverlappingTomographyRunnerBase:
             # TODO(FBM): add batched execution (watch out for possible memory issues?) (what about error handling)?
             raise NotImplementedError("batched_execution is not implemented yet")
 
-        if not simulation and confirm_runs_if_on_hardware:
+        if not self._simulation and confirm_runs_if_on_hardware:
             if not anf.query_yes_no("WARNING! RUNNING ON REAL HARDWARE! CONTINUE?"):
                 raise ValueError("User did not confirm to run on real hardware.")
 
@@ -630,18 +638,18 @@ class OverlappingTomographyRunnerBase:
         labels_list = [x[0] for x in tomography_circuits]
 
         # just to makes sure that we LOG everything in case of running experiments
-        ignore_logging_level = not simulation
-        if qiskit_pass_manager is None:
-            qiskit_pass_manager = generate_preset_pass_manager(backend=qiskit_backend,
-                                                               optimization_level=0,
-                                                               routing_method='none')
+        ignore_logging_level = not self._simulation
+
+        circuits_list_isa = circuits_list.copy()
+
+        if qiskit_pass_manager is not None:
+            circuits_list_isa = qiskit_pass_manager.run(circuits_list_isa)
 
         # print([circ.global_phase for circ in circuits_list])
 
-        circuits_list_isa = qiskit_pass_manager.run(circuits_list)
         # TODO(FBM): somehow isa manager sometimes adds global phase to
         # the circuit and this returns an error during circuit run; the following is a workaround.
-        # It should not change anything unless the circuit is used in some control-like block
+        # It should not change anything unless the circuit is used in some control block
         for circ in circuits_list_isa:
             circ.data = [instr for instr in circ.data if instr.name != 'global_phase']
 
@@ -652,118 +660,112 @@ class OverlappingTomographyRunnerBase:
         if isinstance(logging_metadata, pd.DataFrame):
             logging_metadata = [logging_metadata] * len(circuits_list_isa)
 
-        mocked_session = mock_context_manager_if_simulated and simulation
-        anf.cool_print("OPENING RUNTIME SESSION", f'Mocked={mocked_session}', 'blue')
-
         if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
             if metadata_experiment_set is not None:
-                self.results_logger.write_shared_metadata(metadata_data_type=SNDT.CircuitsMetadata,
-                                                          shared_metadata= metadata_experiment_set)
+                self.results_logger._write_shared_metadata(metadata_data_type=SNDT.CircuitsMetadata,
+                                                           shared_metadata=metadata_experiment_set,
+                                                           overwrite_existing=False)
 
 
-                # self.results_logger.write_results(dataframe=metadata_experiment_set,
-                #                                   data_type=SNDT.ExperimentSetTracking,
-                #                                   # annotate=False,
-                #                                   ignore_logging_level=ignore_logging_level,
-                #                                   additional_annotation_dict=None,
-                #                                   table_name_suffix=None, )
+        if logging_annotation is not None:
+            assert len(logging_annotation) == len(circuits_list_isa), "Logging annotation length does not match number of circuits"
+        if logging_table_names is not None:
+            assert len(logging_table_names) == len(circuits_list_isa), "Logging table names length does not match number of circuits"
+        if logging_metadata is not None:
+            assert len(logging_metadata) == len(circuits_list_isa), "Logging metadata length does not match number of circuits"
+
 
         bitstrings_array_histograms = []
 
-        # Use the abstracted sampler creation with session management
-        with create_qiskit_sampler_with_session(
-                qiskit_backend=qiskit_backend,
-                simulation=simulation,
+        sampler_ibm = self._ensure_sampler()
+
+        anf.cool_print("RUNNING EXPERIMENTS", '...','green')
+
+        if progress_bar_in_notebook:
+            _tqdm = tqdm_notebook
+        else:
+            _tqdm = tqdm
+
+        for circuit_index, (circuit_label, circuit_isa) in _tqdm(enumerate(zip(labels_list, circuits_list_isa)),
+                                                                 desc='Running experiments',
+                                                                 colour='yellow',
+                                                                 #position=0,
+                                                                 disable=not show_progress_bar,
+                                                                 total=len(circuits_list_isa),
+                                                                 #smooting=0.7
+                                                                 ):
+
+
+            t0 = time.perf_counter()
+            _success, job_circuit, results_circuit, df_job_metadata_run = attempt_to_run_qiskit_circuits(
+                circuits_isa=circuit_isa,
+                sampler_ibm=sampler_ibm,
                 number_of_shots=number_of_shots,
-                qiskit_sampler_options=qiskit_sampler_options,
-                mock_context_manager_if_simulated=mocked_session) as sampler_ibm:
+                max_attempts_run=max_attempts_run,
+                metadata_for_error_printing=circuit_label)
 
-            #print(sampler_ibm._backend.options)
-            anf.cool_print("SESSION OPENED!", "RUNNING EXPERIMENTS...", 'green')
+            job_id = None
+            if df_job_metadata_run is not None:
+                job_id = df_job_metadata_run.iloc[0][SNV.JobId.id_long]
 
-            if progress_bar_in_notebook:
-                _tqdm = tqdm_notebook
-            else:
-                _tqdm = tqdm
+            if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
+                # CircuitLabel is not necessary unique.
+                # For random experiments on large system sizes
+                # it is extremely unlikely to get two identical labels
+                # But sometimes we can intentionally run the same circuit
+                # multiple times so we need to have a way of identifying
+                # which job it came from.
+                # We can use job_id for that, but it's usually a large string.
+                # hence, to save memory, instead we use circuit_index and we can match them later.
+                df_job_metadata = pd.DataFrame(data={
+                    "Success": [_success],
+                    SNV.CircuitLabel.id_long: [circuit_label],
+                    # SNV.JobId.id_long:[job_id]
+                    # SNV.CircuitIndex.id_long: [circuit_index],
+                })
+                # print(df_job_metadata)
+                df_job_metadata = pd.concat([df_job_metadata, df_job_metadata_run], axis=1)
+                # print(df_job_metadata)
 
-            for circuit_index, (circuit_label, circuit_isa) in _tqdm(enumerate(zip(labels_list, circuits_list_isa)),
-                                                                     desc='Running experiments',
-                                                                     colour='yellow',
-                                                                     position=0,
-                                                                     disable=not show_progress_bar,
-                                                                     total=len(circuits_list_isa)):
+                if logging_metadata is not None:
+                    df_job_metadata = pd.concat([df_job_metadata,
+                                                 logging_metadata[circuit_index]], axis=1)
 
-                # print(circuit_label)
 
-                t0 = time.perf_counter()
-                _success, job_circuit, results_circuit, df_job_metadata_run = attempt_to_run_qiskit_circuit(
-                    circuit_isa=circuit_isa,
-                    sampler_ibm=sampler_ibm,
-                    number_of_shots=number_of_shots,
-                    max_attempts_run=max_attempts_run,
-                    metadata_for_error_printing=circuit_label)
+                self.results_logger.write_results(dataframe=df_job_metadata,
+                                                  data_type=SNDT.JobMetadata,
+                                                  ignore_logging_level=ignore_logging_level,
+                                                  additional_annotation_dict=logging_annotation[circuit_index] if
+                                                  logging_annotation is not None else None,
+                                                  table_name_suffix=logging_table_names[circuit_index] if
+                                                  logging_table_names is not None else None, )
 
-                job_id = None
-                if df_job_metadata_run is not None:
-                    job_id = df_job_metadata_run.iloc[0][SNV.JobId.id_long]
+            if not _success:
+                print("Skipping circuit:", circuit_label)
+                continue
 
-                if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
-                    # CircuitLabel is not necessary unique.
-                    # For random experiments on large system sizes
-                    # it is extremely unlikely to get two identical labels
-                    # But sometimes we can intentionally run the same circuit
-                    # multiple times so we need to have a way of identifying
-                    # which job it came from.
-                    # We can use job_id for that, but it's usually a large string.
-                    # hence, to save memory, instead we use circuit_index and we can match them later.
-                    df_job_metadata = pd.DataFrame(data={
-                        "Success": [_success],
-                        SNV.CircuitLabel.id_long: [circuit_label],
-                        # SNV.JobId.id_long:[job_id]
-                        # SNV.CircuitIndex.id_long: [circuit_index],
-                    })
-                    # print(df_job_metadata)
-                    df_job_metadata = pd.concat([df_job_metadata, df_job_metadata_run], axis=1)
-                    # print(df_job_metadata)
+            data_c: QiskitBitArray = results_circuit[0].data.c
 
-                    if logging_metadata is not None:
-                        df_job_metadata = pd.concat([df_job_metadata,
-                                                     logging_metadata[circuit_index]], axis=1)
+            t1 = time.perf_counter()
 
-                    self.results_logger.write_results(dataframe=df_job_metadata,
-                                                      data_type=SNDT.JobMetadata,
-                                                      ignore_logging_level=ignore_logging_level,
-                                                      additional_annotation_dict=logging_annotation[circuit_index] if
-                                                      logging_annotation is not None else None,
-                                                      table_name_suffix=logging_table_names[circuit_index] if
-                                                      logging_table_names is not None else None, )
+            bitstrings_res, counts_res = get_counts_from_bit_array(bit_array=data_c)
+            bitstrings_array_histograms.append((bitstrings_res, counts_res))
 
-                if not _success:
-                    print("Skipping circuit:", circuit_label)
-                    continue
+            if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
+                df_bitstrings = pd.DataFrame(data={SNV.CircuitLabel.id_long: [circuit_label] * len(bitstrings_res),
+                                                   SNV.Bitstring.id_long: [x for x in bitstrings_res],
+                                                   SNV.Count.id_long: counts_res,
+                                                   SNV.JobId.id_long: [job_id] * len(bitstrings_res)})
 
-                data_c: QiskitBitArray = results_circuit.data.c
+                self.results_logger.write_results(dataframe=df_bitstrings,
+                                                  data_type=SNDT.BitstringsHistograms,
+                                                  ignore_logging_level=ignore_logging_level,
+                                                  additional_annotation_dict=logging_annotation[circuit_index] if
+                                                  logging_annotation is not None else None,
+                                                  table_name_suffix=logging_table_names[circuit_index] if
+                                                  logging_table_names is not None else None, )
 
-                t1 = time.perf_counter()
-
-                bitstrings_res, counts_res = get_counts_from_bit_array(bit_array=data_c)
-                bitstrings_array_histograms.append((bitstrings_res, counts_res))
-
-                if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
-                    df_bitstrings = pd.DataFrame(data={SNV.CircuitLabel.id_long: [circuit_label] * len(bitstrings_res),
-                                                       SNV.Bitstring.id_long: [x for x in bitstrings_res],
-                                                       SNV.Count.id_long: counts_res,
-                                                       SNV.JobId.id_long: [job_id] * len(bitstrings_res)})
-
-                    self.results_logger.write_results(dataframe=df_bitstrings,
-                                                      data_type=SNDT.BitstringsHistograms,
-                                                      ignore_logging_level=ignore_logging_level,
-                                                      additional_annotation_dict=logging_annotation[circuit_index] if
-                                                      logging_annotation is not None else None,
-                                                      table_name_suffix=logging_table_names[circuit_index] if
-                                                      logging_table_names is not None else None, )
-
-                t2 = time.perf_counter()
+            t2 = time.perf_counter()
 
         if return_results:
             return labels_list, bitstrings_array_histograms

@@ -1,6 +1,6 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 
 import gc
 import time
@@ -9,7 +9,8 @@ from typing import List, Optional, Dict, Any
 import numpy as np
 import warnings
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.circuits.noise.simulation.ClassicalMeasurementNoiseSampler import ClassicalMeasurementNoiseSampler
 from quapopt.data_analysis.data_handling import (verify_whether_to_log_data,
                                                  STANDARD_NAMES_VARIABLES as SNV,
@@ -32,7 +33,67 @@ from quapopt.optimization.QAOA.simulation.pauli_backprop.one_layer.cython_implem
 
 class QAOARunnerExpValues(QAOARunnerBase):
     """
-    Class for running QAOA with expectation values.
+    High-performance QAOA expectation value computation using optimized simulation backends
+    for depth-1 QAOA. 
+    
+    This class provides efficient QAOA expectation value calculations without the overhead
+    of full quantum circuit simulation. It directly computes expectation values using
+    optimized mathematical implementations that can leverage CPU (Cython) or GPU (CUDA)
+    acceleration depending on available hardware.
+    
+    The implementation is particularly suited for:
+    - Classical benchmarking and validation of quantum results
+    - Noise-free baseline computations for comparison with noisy quantum hardware
+    
+    Key Features:
+    - Only p=1 support
+    - Option to optimize only over phase separator angle (\gamma), while mixer angle (\beta) is computed analytically
+    - Direct expectation value computation (no wavefunction sampling)
+    - Automatic backend selection (CUDA > Cython > NumPy)
+    - Support for both cost and phase Hamiltonian transformations
+    - Classical measurement noise simulation capabilities
+    - Memory-efficient implementation for large problem instances
+    
+    
+    :param hamiltonian_representations_cost: List of cost Hamiltonians to optimize
+    :type hamiltonian_representations_cost: List[ClassicalHamiltonian]
+    :param hamiltonian_representations_phase: Optional phase Hamiltonians for the ansatz
+    :type hamiltonian_representations_phase: List[ClassicalHamiltonian], optional
+    :param store_full_information_in_history: Whether to store complete optimization history
+    :type store_full_information_in_history: bool
+    :param solve_at_initialization: Whether to solve Hamiltonians during initialization
+    :type solve_at_initialization: bool
+    :param simulator_name: Override automatic backend selection ('cuda', 'cython', 'numpy')
+    :type simulator_name: str, optional
+    :param logger_kwargs: Additional keyword arguments for logger configuration
+    :type logger_kwargs: Dict[str, Any], optional
+    :param logging_level: Verbosity level for result logging
+    :type logging_level: LoggingLevel, optional
+    :param precision_float: Floating-point precision for computations
+    :type precision_float: numpy.dtype
+    :param store_n_best_results: Number of best optimization results to retain
+    :type store_n_best_results: int
+    
+    Example:
+        >>> from quapopt.hamiltonians import ClassicalHamiltonian
+        >>> # Create QAOA expectation value runner
+        >>> ham_cost = [ClassicalHamiltonian([(1.0, (0, 1))], number_of_qubits=2)]
+        >>> runner = QAOARunnerExpValues(
+        ...     hamiltonian_representations_cost=ham_cost,
+        ...     precision_float=np.float64
+        ... )
+        >>> # Run QAOA with specific angles
+        >>> result = runner.run_qaoa([0.5, 0.3])  # [gamma, beta] for p=1
+        >>> print(f"Energy: {result.energy_result.energy_mean}")
+    
+    .. note::
+        This implementation computes expectation values analytically and is deterministic
+        (no sampling noise). For realistic quantum simulation including measurement
+        statistics, use QAOARunnerQiskit or add classical measurement noise.
+    
+    .. note::
+        Backend selection hierarchy: CUDA (if available) > Cython > NumPy.
+        CUDA backend provides significant speedup for large problem instances.
     """
 
     def __init__(self,
@@ -49,12 +110,30 @@ class QAOARunnerExpValues(QAOARunnerBase):
                 # number_of_qubits: int=None
                  ) -> None:
         """
-        Constructor.
-        :param input_hamiltonian:
-        :param hamiltonian_transformations_to_optimize:
-        :param store_full_information_in_history:
-        :param ground_state_energy:
-        :param numpy_rng_sampling:
+        Initialize the QAOA expectation value runner with optimized simulation backends.
+        
+        Sets up the computational infrastructure for high-performance QAOA expectation
+        value calculations, including automatic backend selection and Hamiltonian
+        preprocessing for efficient computation.
+        
+        :param hamiltonian_representations_cost: List of cost Hamiltonians to optimize
+        :type hamiltonian_representations_cost: List[ClassicalHamiltonian]
+        :param hamiltonian_representations_phase: Optional phase Hamiltonians for the ansatz
+        :type hamiltonian_representations_phase: List[ClassicalHamiltonian], optional
+        :param store_full_information_in_history: Whether to store complete optimization history
+        :type store_full_information_in_history: bool
+        :param solve_at_initialization: Whether to solve Hamiltonians during initialization
+        :type solve_at_initialization: bool
+        :param simulator_name: Override automatic backend selection ('cuda', 'cython', 'mixed')
+        :type simulator_name: str, optional
+        :param logger_kwargs: Additional keyword arguments for logger configuration
+        :type logger_kwargs: Dict[str, Any], optional
+        :param logging_level: Verbosity level for result logging
+        :type logging_level: LoggingLevel, optional
+        :param precision_float: Floating-point precision for computations
+        :type precision_float: numpy.dtype
+        :param store_n_best_results: Number of best optimization results to retain
+        :type store_n_best_results: int
         """
 
         # self._best_results_container = BestResultsContainerBase()

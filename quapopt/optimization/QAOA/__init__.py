@@ -1,9 +1,10 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
- 
+
 # import all types from typing
 from enum import Enum
 from typing import List, Optional, Tuple, Union
+import warnings
 
 import numpy as np
 #Lazy monkey-patching of cupy
@@ -15,7 +16,8 @@ except(ImportError,ModuleNotFoundError):
 import pandas as pd
 from pathlib import Path
 
-from quapopt.additional_packages.ancillary_functions_usra import ancillary_functions as anf
+from quapopt import ancillary_functions as anf
+
 from quapopt.data_analysis.data_handling import (StandardizedSpecifier,
                                                  HamiltonianClassSpecifierGeneral,
                                                  HamiltonianInstanceSpecifierGeneral,
@@ -28,7 +30,8 @@ from quapopt.optimization import (EnergyResultMain,
                                    HamiltonianOptimizationResultsLogger)
 
 
-from quapopt.data_analysis.data_handling.io_utilities.logging_config import LoggingLevel
+from quapopt.data_analysis.data_handling import LoggingLevel
+
 from dataclasses import dataclass, field, fields
 
 
@@ -36,16 +39,13 @@ _ANGLES_BOUNDS_LAYER_PHASE = (-np.pi, np.pi)
 _ANGLES_BOUNDS_LAYER_MIXER = (-np.pi, np.pi)
 
 
-# define enum class specyfing types of ansatze
 class PhaseSeparatorType(Enum):
     QAOA = 'QAOA'
     QAMPA = 'QAMPA'
 
-
 class MixerType(Enum):
     QAOA = 'QAOA'
     QAMPA = 'QAMPA'
-
 
 class QubitMappingType(Enum):
     linear_swap_network = 'LSN'
@@ -65,50 +65,38 @@ class QAOAFunctionInputFormat(Enum):
     # Arguments are passed as _fun(optuna.Trial)
     optuna = 'Optuna'
 
-@dataclass(frozen=True)
+@dataclass
 class AnsatzSpecifier(StandardizedSpecifier):
     # Define fields with default values, some computed in __post_init__
-    PhaseHamiltonianClass: HamiltonianClassSpecifierGeneral = field(default=None, init=False)
-    PhaseHamiltonianInstance: HamiltonianInstanceSpecifierGeneral = field(default=None, init=False)
-    PhaseSeparatorType: PhaseSeparatorType = field(default=None, init=False)
-    MixerType: MixerType = field(default=None, init=False)
-    QubitMappingType: QubitMappingType = field(default=None, init=False)
-    Depth: int = field(default=None, init=False)
-    #AlgorithmicDepth: int = field(default=None, init=False)
-    TimeBlockSize: int = field(default=None, init=False)
+    PhaseHamiltonianClass: HamiltonianClassSpecifierGeneral = field(default=None, init=True)
+    PhaseHamiltonianInstance: HamiltonianInstanceSpecifierGeneral = field(default=None, init=True)
+    PhaseSeparatorType: PhaseSeparatorType = field(default=None, init=True)
+    MixerType: MixerType = field(default=None, init=True)
+    QubitMappingType: QubitMappingType = field(default=None, init=True)
+    Depth: int = field(default=None, init=True)
+    TimeBlockSize: Optional[int|float] = field(default=None, init=True)
 
-    def __init__(self,
-                 phase_hamiltonian_class_specifier: HamiltonianClassSpecifierGeneral,
-                 phase_hamiltonian_instance_specifier: HamiltonianInstanceSpecifierGeneral,
-                 depth: Optional[int] = None,
-                 phase_separator_type: Optional[PhaseSeparatorType] = None,
-                 mixer_type: Optional[MixerType] = None,
-                 qubit_mapping_type: Optional[QubitMappingType] = None,
-                 time_block_size: Optional[int] = None,
-                 ):
-
+    def __post_init__(self):
         # Set defaults
-        if phase_separator_type is None:
-            phase_separator_type = PhaseSeparatorType.QAOA
-        if mixer_type is None:
-            mixer_type = MixerType.QAOA
-        if qubit_mapping_type is None:
-            qubit_mapping_type = QubitMappingType.linear_swap_network
-        if depth is None:
-            depth = 1
+        if self.PhaseSeparatorType is None:
+            self.PhaseSeparatorType = PhaseSeparatorType.QAOA
+        if self.MixerType is None:
+            self.MixerType = MixerType.QAOA
+        if self.QubitMappingType is None:
+            self.QubitMappingType = QubitMappingType.linear_swap_network
+        if self.Depth is None:
+            self.Depth = 1
 
-        if time_block_size is None:
-            if phase_hamiltonian_instance_specifier is not None:
-                time_block_size = phase_hamiltonian_instance_specifier.NumberOfQubits
 
-        # Parameter aliasing - map from init parameters to actual attributes
-        object.__setattr__(self, 'PhaseHamiltonianClass', phase_hamiltonian_class_specifier)
-        object.__setattr__(self, 'PhaseHamiltonianInstance', phase_hamiltonian_instance_specifier)
-        object.__setattr__(self, 'PhaseSeparatorType', phase_separator_type)
-        object.__setattr__(self, 'MixerType', mixer_type)
-        object.__setattr__(self, 'QubitMappingType', qubit_mapping_type)
-        object.__setattr__(self, 'Depth', depth)
-        object.__setattr__(self, 'TimeBlockSize', time_block_size)
+        if self.TimeBlockSize is None:
+            if self.QubitMappingType == QubitMappingType.linear_swap_network:
+                if self.PhaseHamiltonianInstance is None:
+                    self.TimeBlockSize = None
+                else:
+                    self.TimeBlockSize = self.PhaseHamiltonianInstance.NumberOfQubits
+            else:
+                self.TimeBlockSize = 1.0
+
 
     @property
     def AlgorithmicDepth(self):
@@ -116,7 +104,7 @@ class AnsatzSpecifier(StandardizedSpecifier):
 
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class QuantumOptimizationSpecifier(HamiltonianOptimizationSpecifier):
     # Additional field for ansatz specification
     AnsatzSpecifier: Optional[AnsatzSpecifier] = field(init=True)
@@ -174,15 +162,13 @@ class QAOAResultsLogger(HamiltonianOptimizationResultsLogger):
         :param experiment_set_id: ID of the experiment set
         :param experiment_instance_id: ID of this experiment instance
         """
-        
-        # Set up QAOA-specific folder hierarchy
-        if experiment_folders_hierarchy is None:
-            experiment_folders_hierarchy = []
-        else:
-            experiment_folders_hierarchy = experiment_folders_hierarchy.copy()
-            
-        if len(experiment_folders_hierarchy) == 0 or experiment_folders_hierarchy[-1] != "QAOAResults":
-            experiment_folders_hierarchy.append("QAOAResults")
+        warnings.warn(
+            "QAOAResultsLogger is deprecated. Use ResultsLogger instead and handle "
+            "metadata in runner/analyzer classes.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
 
         # Create QAOA-specific experiment specifier that includes ansatz information
         cost_hamiltonian_class_specifier = cost_hamiltonian.hamiltonian_class_specifier
@@ -212,8 +198,12 @@ class QAOAResultsLogger(HamiltonianOptimizationResultsLogger):
             logging_level=logging_level,
             experiment_set_name=experiment_set_name,
             experiment_set_id=experiment_set_id,
-            experiment_instance_id=experiment_instance_id,
-        )
+            experiment_instance_id=experiment_instance_id,)
+
+
+
+
+
 
 
 class QAOAResult:
@@ -302,3 +292,8 @@ class QAOAResult:
         self.energy_mean = self.energy_result.energy_mean
         self.energy_best = self.energy_result.energy_best
         self.bitstring_best = self.energy_result.bitstring_best
+
+
+if __name__ == '__main__':
+
+    print(QubitMappingType.sabre == QubitMappingType.linear_swap_network)
