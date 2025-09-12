@@ -2,6 +2,7 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 
+
 from pathlib import Path
 from typing import List, Optional, Union, Any
 
@@ -9,19 +10,18 @@ import numpy as np
 import pandas as pd
 
 from quapopt import ancillary_functions as anf
-
 from quapopt.data_analysis.data_handling.io_utilities import DEFAULT_STORAGE_DIRECTORY
-from quapopt.data_analysis.data_handling.schemas.configurations import LoggingLevel, ExperimentLoggerConfig
 from quapopt.data_analysis.data_handling.io_utilities.metadata_management import ExperimentSetMetadataManager
 from quapopt.data_analysis.data_handling.io_utilities.standardized_io import (ResultsIO)
+from quapopt.data_analysis.data_handling.schemas.configurations import LoggingLevel, ExperimentLoggerConfig
 from quapopt.data_analysis.data_handling.schemas.naming import (
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
     DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-STANDARD_NAMES_DATA_TYPES as SNDT,
-STANDARD_NAMES_VARIABLES as SNV,
+    STANDARD_NAMES_DATA_TYPES as SNDT,
+    STANDARD_NAMES_VARIABLES as SNV,
+    BaseNameDataType,
+    StandardizedSpecifier
 )
-from quapopt.data_analysis.data_handling.schemas.naming import (StandardizedSpecifier,
-                                                                BaseNameDataType, )
 
 _DATA_TYPES_LOGGING_MINIMAL = [SNDT.VariationalParameters,
                                SNDT.ExpectedValues,
@@ -313,7 +313,7 @@ class ResultsLogger(ResultsIO):
         return self.metadata_manager.read_set_tracking()
 
     def _read_shared_metadata(self,
-                              data_type: SNDT,
+                              data_type: BaseNameDataType,
                               table_name_prefix: Optional[str] = None,
                               table_name_suffix: Optional[str] = None
                               ):
@@ -322,7 +322,7 @@ class ResultsLogger(ResultsIO):
                                                           table_name_suffix=table_name_suffix, )
 
     def _write_shared_metadata(self,
-                               metadata_data_type: SNDT,
+                               metadata_data_type: BaseNameDataType,
                                shared_metadata: Any,
                                overwrite_existing: bool = False,
                                table_name_prefix: Optional[str] = None,
@@ -555,7 +555,7 @@ class ResultsLogger(ResultsIO):
 
     def read_results(self,
                      table_name: Optional[str] = None,
-                     data_type: SNDT = None,
+                     data_type: BaseNameDataType = None,
                      directory_subpath: Optional[str | Path] = None,
                      # annotate_with_ids: bool = False,
                      experiment_instance_ids: Optional[List[str]] = None,
@@ -677,7 +677,7 @@ class ResultsLogger(ResultsIO):
         return df_read
 
     def gather_results(self,
-                       data_type: SNDT,
+                       data_type: BaseNameDataType,
                        table_name_prefix: Optional[str] = None,
                        table_name_suffix: Optional[str] = None,
                        directory_subpath: Optional[str | Path] = None,
