@@ -4,7 +4,7 @@
 import os
 import uuid
 from pathlib import Path
-from typing import Optional, List, Union, Any
+from typing import Optional, List, Union, Any, Type
 
 import numpy as np
 import pandas as pd
