@@ -287,7 +287,7 @@ class ResultsIO(IOMixin):
         np.save(f"{full_path}", array, allow_pickle=False)
 
     def write_results(self,
-                      dataframe: pd.DataFrame|Any,
+                      dataframe: Union[pd.DataFrame, Any],
                       directory_subpath: Optional[str | Path] = None,
                       table_name: Optional[str] = None,
                       table_name_prefix: Optional[str | Path] = None,
