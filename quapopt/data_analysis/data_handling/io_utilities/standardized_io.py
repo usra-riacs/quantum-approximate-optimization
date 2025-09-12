@@ -10,11 +10,11 @@ import numpy as np
 import pandas as pd
 
 from quapopt.data_analysis.data_handling.io_utilities import IOMixin, DEFAULT_STORAGE_DIRECTORY, add_file_format_suffix
-from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                         )
 from quapopt.data_analysis.data_handling.schemas.naming import (
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
+    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+BaseNameDataType,
+STANDARD_NAMES_DATA_TYPES as SNDT
 )
 
 
@@ -119,7 +119,7 @@ class ResultsIO(IOMixin):
                             table_name: Optional[str],
                             table_name_prefix: Optional[str] = None,
                             table_name_suffix: Optional[str] = None,
-                            data_type: Optional[Type[SNDT]] = None):
+                            data_type: Optional[BaseNameDataType] = None):
         """
         Full table name should look like this:
 
@@ -157,7 +157,7 @@ class ResultsIO(IOMixin):
         :param table_name:
         The full table name to be cleaned, e.g. 'TestPrefix%TestTable%TestSuffix%Results.dat'.
         :param data_type:
-        The data type of the table, e.g. Type[SNDT].Results.
+        The data type of the table, e.g. SNDT.Results.
         :param remove_prefix:
         If True, the prefix will be removed from the table name.
         :param remove_suffix:
@@ -231,7 +231,7 @@ class ResultsIO(IOMixin):
                                  table_name: Optional[str],
                                  table_name_prefix: Optional[str] = None,
                                  table_name_suffix: Optional[str] = None,
-                                 data_type: Optional[Type[SNDT]] = None,
+                                 data_type: Optional[BaseNameDataType] = None,
                                  ):
         """
         Get the full file name for a table, including prefix, suffix, and data type.
@@ -292,7 +292,7 @@ class ResultsIO(IOMixin):
                       table_name: Optional[str] = None,
                       table_name_prefix: Optional[str | Path] = None,
                       table_name_suffix: Optional[str | Path] = None,
-                      data_type: Type[SNDT] = None,
+                      data_type: BaseNameDataType = None,
                       df_annotations_dict: dict = None,
                       format_type='dataframe',
                       overwrite_existing_non_csv: bool = False,
@@ -364,7 +364,7 @@ class ResultsIO(IOMixin):
                      table_name: Optional[str] = None,
                      table_name_prefix: Optional[str | Path] = None,
                      table_name_suffix: Optional[str | Path] = None,
-                     data_type: Type[SNDT] = None,
+                     data_type: BaseNameDataType = None,
                      df_annotations_dict: dict = None,
                      format_type='dataframe',
                      excluded_trials=None,
