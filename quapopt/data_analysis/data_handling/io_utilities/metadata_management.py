@@ -21,7 +21,9 @@ from quapopt.data_analysis.data_handling.io_utilities import IOMixin, DEFAULT_ST
 from quapopt.data_analysis.data_handling.schemas import (
     STANDARD_NAMES_DATA_TYPES as SNDT,
     STANDARD_NAMES_DATA_TYPES_EXPERIMENT_SETS as SNDTES,
-    STANDARD_NAMES_VARIABLES as SNV
+    STANDARD_NAMES_VARIABLES as SNV,
+ BaseNameDataType
+
 )
 
 
@@ -171,7 +173,7 @@ class ExperimentSetMetadataManager(IOMixin):
             self._write_set_tracking()
 
     @staticmethod
-    def _convert_to_set_level_metadata(metadata_data_type: SNDT) -> SNDT:
+    def _convert_to_set_level_metadata(metadata_data_type: BaseNameDataType) -> BaseNameDataType:
         """
         Convert instance-level metadata type to experiment set level.
         
@@ -327,7 +329,7 @@ class ExperimentSetMetadataManager(IOMixin):
 
     @classmethod
     def get_metadata_filename(cls,
-                              metadata_data_type: SNDT,
+                              metadata_data_type: BaseNameDataType,
                               experiment_set_id: str,
                               table_name_prefix: Optional[str] = None,
                               table_name_suffix: Optional[str] = None) -> str:
@@ -344,7 +346,7 @@ class ExperimentSetMetadataManager(IOMixin):
                                        data_type=metadata_data_type)
 
     def get_metadata_path(self,
-                          metadata_data_type: SNDT) -> Path:
+                          metadata_data_type: BaseNameDataType) -> Path:
         """Get the metadata directory path."""
         
         # Convert to set-level metadata type
@@ -359,7 +361,7 @@ class ExperimentSetMetadataManager(IOMixin):
         return self.persistence_strategy.read_set_tracking(metadata_manager=self)
 
     def read_shared_metadata(self,
-                             metadata_data_type: SNDT,
+                             metadata_data_type: BaseNameDataType,
                              persistence_strategy: Optional['MetadataPersistenceStrategy'] = None,
                              table_name_prefix: Optional[str] = None,
                              table_name_suffix: Optional[str] = None) -> Any:
@@ -376,7 +378,7 @@ class ExperimentSetMetadataManager(IOMixin):
         return persistence_strategy.read_set_metadata(self, metadata_data_type, table_name_prefix, table_name_suffix)
 
     def write_shared_metadata(self,
-                              metadata_data_type: SNDT,
+                              metadata_data_type: BaseNameDataType,
                               shared_metadata: Any,
                               overwrite_existing: bool = False,
                               table_name_prefix: Optional[str] = None,
@@ -411,7 +413,7 @@ class MetadataPersistenceStrategy(ABC):
     @abstractmethod
     def write_set_metadata(
             metadata_manager: ExperimentSetMetadataManager,
-            metadata_data_type: SNDT,
+            metadata_data_type: BaseNameDataType,
             shared_metadata: Any,
             overwrite_existing: bool,
             table_name_prefix: Optional[str] = None,
@@ -422,7 +424,7 @@ class MetadataPersistenceStrategy(ABC):
     @abstractmethod
     def read_set_metadata(
             metadata_manager: ExperimentSetMetadataManager,
-            metadata_data_type: SNDT,
+            metadata_data_type: BaseNameDataType,
             table_name_prefix: Optional[str] = None,
             table_name_suffix: Optional[str] = None) -> Any:
         pass
@@ -476,7 +478,7 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
     @staticmethod
     def _get_json_file_path(#self,
                             metadata_manager: ExperimentSetMetadataManager,
-                           metadata_data_type: SNDT,
+                           metadata_data_type: BaseNameDataType,
                            table_name_prefix: Optional[str] = None,
                            table_name_suffix: Optional[str] = None) -> Path:
         """
@@ -587,7 +589,7 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
     @staticmethod
     def write_set_metadata(#cls,
             metadata_manager: ExperimentSetMetadataManager,
-            metadata_data_type: SNDT,
+            metadata_data_type: BaseNameDataType,
             shared_metadata: Any,
             overwrite_existing: bool,
             table_name_prefix: Optional[str] = None,
@@ -627,7 +629,7 @@ class SplitFilePersistence(MetadataPersistenceStrategy):
     @staticmethod
     def read_set_metadata(#cls,
                           metadata_manager: ExperimentSetMetadataManager,
-                          metadata_data_type: SNDT,
+                          metadata_data_type: BaseNameDataType,
                           table_name_prefix: Optional[str] = None,
                           table_name_suffix: Optional[str] = None) -> Any:
         """
