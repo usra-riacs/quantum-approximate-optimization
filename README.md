@@ -24,7 +24,7 @@ If you don't have it, please install pixi using the following command **on Linux
 curl -fsSL https://pixi.sh/install.sh | sh 
 ```
 
-(see https://pixi.sh/v0.49.0/installation/ for details and other installation options)
+(see https://pixi.sh/v0.54.2/installation/ for details and other installation options)
 
 
 
