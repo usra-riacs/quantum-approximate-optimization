@@ -15,18 +15,18 @@ from dotenv import load_dotenv
 
 from quapopt import ancillary_functions as anf
 
-from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                         HamiltonianClassSpecifierGeneral,
-                                                         HamiltonianInstanceSpecifierGeneral, )
-from quapopt.data_analysis.data_handling.schemas import STANDARD_NAMES_VARIABLES as SNV
-from quapopt.data_analysis.data_handling.schemas.naming import (BaseNameDataType, )
-from quapopt.data_analysis.data_handling.schemas.naming import (
-    MAIN_KEY_SEPARATOR as MKS,
-    DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
-)
 from quapopt.data_analysis.data_handling.schemas.naming import (MAIN_KEY_VALUE_SEPARATOR as MKVS,
-                                                                SUB_KEY_VALUE_SEPARATOR as SKVS)
+                                                                SUB_KEY_VALUE_SEPARATOR as SKVS,
+                                                                STANDARD_NAMES_VARIABLES as SNV,
+                                                                STANDARD_NAMES_DATA_TYPES as SNDT,
+                                                                HamiltonianClassSpecifierGeneral,
+                                                                HamiltonianInstanceSpecifierGeneral,
+                                                                MAIN_KEY_SEPARATOR as MKS,
+                                                                DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
+                                                                DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+                                                                BaseNameDataType
+                                                                )
+
 
 load_dotenv()
 
