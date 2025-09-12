@@ -149,7 +149,7 @@ class IOMixin:
 
     @classmethod
     def get_data_type_suffix(cls,
-                             data_type: Type[SNDT]) -> str:
+                             data_type: BaseNameDataType) -> str:
         """Get the standardized suffix for a given data type."""
         return cls.get_key_value_pair(key_id=SNDT.DataType.id,
                                       value=data_type.id)
@@ -304,7 +304,7 @@ class IOMixin:
     @classmethod
     def get_full_table_name(cls,
                             table_name_parts: List[Optional[str]],
-                            data_type: Optional[Type[SNDT]] = None,
+                            data_type: Optional[BaseNameDataType] = None,
                             name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
 
         data_type_suffix = cls.get_data_type_suffix(data_type=data_type)
@@ -431,7 +431,7 @@ class IOMixin:
 
     @classmethod
     def write_results(cls,
-                      data: pd.DataFrame | Any,
+                      data: Union[pd.DataFrame, Any],
                       full_path: str | Path,
                       format_type: str = 'dataframe',
                       overwrite_existing_non_csv:bool=False,
