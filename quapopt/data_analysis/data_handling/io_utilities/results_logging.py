@@ -14,12 +14,11 @@ from quapopt.data_analysis.data_handling.io_utilities import DEFAULT_STORAGE_DIR
 from quapopt.data_analysis.data_handling.schemas.configurations import LoggingLevel, ExperimentLoggerConfig
 from quapopt.data_analysis.data_handling.io_utilities.metadata_management import ExperimentSetMetadataManager
 from quapopt.data_analysis.data_handling.io_utilities.standardized_io import (ResultsIO)
-from quapopt.data_analysis.data_handling.schemas import (STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                         STANDARD_NAMES_VARIABLES as SNV,
-                                                         )
 from quapopt.data_analysis.data_handling.schemas.naming import (
     DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR
+    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+STANDARD_NAMES_DATA_TYPES as SNDT,
+STANDARD_NAMES_VARIABLES as SNV,
 )
 from quapopt.data_analysis.data_handling.schemas.naming import (StandardizedSpecifier,
                                                                 BaseNameDataType, )
