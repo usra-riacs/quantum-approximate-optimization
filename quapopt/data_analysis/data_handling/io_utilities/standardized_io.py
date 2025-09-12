@@ -119,7 +119,7 @@ class ResultsIO(IOMixin):
                             table_name: Optional[str],
                             table_name_prefix: Optional[str] = None,
                             table_name_suffix: Optional[str] = None,
-                            data_type: Optional[SNDT] = None):
+                            data_type: Optional[Type[SNDT]] = None):
         """
         Full table name should look like this:
 
@@ -157,7 +157,7 @@ class ResultsIO(IOMixin):
         :param table_name:
         The full table name to be cleaned, e.g. 'TestPrefix%TestTable%TestSuffix%Results.dat'.
         :param data_type:
-        The data type of the table, e.g. SNDT.Results.
+        The data type of the table, e.g. Type[SNDT].Results.
         :param remove_prefix:
         If True, the prefix will be removed from the table name.
         :param remove_suffix:
@@ -231,7 +231,7 @@ class ResultsIO(IOMixin):
                                  table_name: Optional[str],
                                  table_name_prefix: Optional[str] = None,
                                  table_name_suffix: Optional[str] = None,
-                                 data_type: Optional[SNDT] = None,
+                                 data_type: Optional[Type[SNDT]] = None,
                                  ):
         """
         Get the full file name for a table, including prefix, suffix, and data type.
@@ -292,7 +292,7 @@ class ResultsIO(IOMixin):
                       table_name: Optional[str] = None,
                       table_name_prefix: Optional[str | Path] = None,
                       table_name_suffix: Optional[str | Path] = None,
-                      data_type: SNDT = None,
+                      data_type: Type[SNDT] = None,
                       df_annotations_dict: dict = None,
                       format_type='dataframe',
                       overwrite_existing_non_csv: bool = False,
@@ -364,7 +364,7 @@ class ResultsIO(IOMixin):
                      table_name: Optional[str] = None,
                      table_name_prefix: Optional[str | Path] = None,
                      table_name_suffix: Optional[str | Path] = None,
-                     data_type: SNDT = None,
+                     data_type: Type[SNDT] = None,
                      df_annotations_dict: dict = None,
                      format_type='dataframe',
                      excluded_trials=None,
