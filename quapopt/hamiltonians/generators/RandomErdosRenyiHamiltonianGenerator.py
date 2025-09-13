@@ -8,7 +8,8 @@ import numpy as np
 from quapopt.data_analysis.data_handling import (
     HamiltonianClassSpecifierErdosRenyi,
     CoefficientsDistributionSpecifier,
-    ERDOS_RENYI_TYPES)
+    ERDOS_RENYI_TYPES,
+BaseName)
 from quapopt.hamiltonians.generators.RandomClassicalHamiltonianGeneratorBase import \
     RandomClassicalHamiltonianGeneratorBase, _get_default_coefficient_sampling_function
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
@@ -18,7 +19,7 @@ class RandomErdosRenyiHamiltonianGenerator(RandomClassicalHamiltonianGeneratorBa
     def __init__(self,
                  coefficients_distribution_specifier: CoefficientsDistributionSpecifier = None,
                  localities=(2,),
-                 erdos_renyi_type: Optional[ERDOS_RENYI_TYPES] = None,
+                 erdos_renyi_type: Optional[BaseName] = None,
                  hamiltonian_class_specifier=None
                  ):
 
