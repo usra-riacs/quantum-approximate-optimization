@@ -5,7 +5,8 @@
 
 from quapopt.data_analysis.data_handling import (
     CoefficientsDistributionSpecifier,
-    ERDOS_RENYI_TYPES)
+    ERDOS_RENYI_TYPES,
+BaseName)
 from quapopt.data_analysis.data_handling import HamiltonianClassSpecifierMaxCut
 from quapopt.hamiltonians.generators.RandomErdosRenyiHamiltonianGenerator import \
     RandomErdosRenyiHamiltonianGenerator
@@ -14,7 +15,7 @@ from quapopt.hamiltonians.generators.RandomErdosRenyiHamiltonianGenerator import
 class RandomMaxCutHamiltonianGenerator(RandomErdosRenyiHamiltonianGenerator):
     def __init__(self,
                  coefficients_distribution_specifier: CoefficientsDistributionSpecifier = None,
-                 erdos_renyi_type: ERDOS_RENYI_TYPES = ERDOS_RENYI_TYPES.Gnp
+                 erdos_renyi_type: BaseName = ERDOS_RENYI_TYPES.Gnp
                  ):
         """
         Initializes a random Max-Cut Hamiltonian generator.
