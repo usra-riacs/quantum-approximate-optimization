@@ -13,10 +13,10 @@ from quapopt.data_analysis.data_handling import (CoefficientsType,
                                                  CoefficientsDistribution,
                                                  CoefficientsDistributionSpecifier,
                                                  HamiltonianClassSpecifierGeneral,
-                                                 HamiltonianModels)
+                                                 HamiltonianModels,)
 
-def _get_default_coefficient_sampling_function(coefficients_distribution: CoefficientsDistribution,
-                                               coefficients_type: CoefficientsType,
+def _get_default_coefficient_sampling_function(coefficients_distribution: BaseName,
+                                               coefficients_type: BaseName,
                                                coefficients_distribution_properties: dict)->Callable[[np.random.Generator, int], Union[float, int, List[int], List[float]]]:
 
     if coefficients_distribution in [CoefficientsDistribution.Custom]:
