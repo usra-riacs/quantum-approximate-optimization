@@ -656,6 +656,12 @@ class IOMixin:
                             function_to_apply=lambda x: np.fromstring(x[1:-1], dtype=int, sep=' '),
                             number_of_threads=number_of_threads)
 
+                    elif col_type in ['list']:
+                        df_read[col] = df_read[col].apply(lambda x: eval(x))
+
+
+
+
 
             except(ValueError) as val_err:
                 print("ERROR READING COLUMN:", col)

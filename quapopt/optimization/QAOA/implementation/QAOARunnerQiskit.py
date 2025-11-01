@@ -85,7 +85,7 @@ class QAOARunnerQiskit(QiskitSessionManagerMixin):
     :type noiseless_simulation: bool
     
     Example:
-        >>> from quapopt.hamiltonians import ClassicalHamiltonian
+        >>> from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
         >>> from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
         >>> # Create Hamiltonian
         >>> ham = ClassicalHamiltonian([(1.0, (0, 1))], number_of_qubits=2)
@@ -225,63 +225,62 @@ class QAOARunnerQiskit(QiskitSessionManagerMixin):
                                                        ignore_add_barriers_flag=False
                                                        )
 
-
         ansatz.quantum_circuit = circuit_delayed
-
 
         self.ansatz = ansatz
 
         # Store circuit before transpilation (with exception of SABRE, that transpiles circuit inside the class)
         ansatz_circuit = ansatz.quantum_circuit.copy()
 
-
-        #self.ansatz_circuit_abstract = ansatz_circuit_abstract
+        # self.ansatz_circuit_abstract = ansatz_circuit_abstract
         self.parameters_PHASE = self.ansatz.parameters[0]
         self.parameters_MIXER = self.ansatz.parameters[1]
 
-
-        #Here we aim to create qubit mappings on the level of measurement operations, so we don't need to relabel bitstrings much
+        # Here we aim to create qubit mappings on the level of measurement operations, so we don't need to relabel bitstrings much
         if qubit_mapping_type == QubitMappingType.sabre:
             # original_indices_sabre = ansatz.logical_to_physical_qubits_map
             qubits_permutation = ansatz.qubit_mapping_permutation
 
-            #We fully reverse the routing of qubits when creating measurement map
+            # We fully reverse the routing of qubits when creating measurement map
             bitstrings_permutation = None
             for classical_index, qubit_index in zip(classical_indices, qubits_permutation):
                 ansatz_circuit.measure(qubit=qubit_index, cbit=classical_index)
 
         else:
+            qubit_indices_physical = ansatz.logical_to_physical_qubits_map
+
             if qubit_mapping_type == QubitMappingType.linear_swap_network:
                 swap_network_permutation = ansatz.qubit_mapping_permutation
-                #we want to reverse swap network permutation:
+                #print('swap_network_permutation:',swap_network_permutation)
+                # we want to reverse swap network permutation:
                 qubits_permutation = anf.reverse_permutation(permutation=swap_network_permutation)
+                qubit_indices_measurement = [qubit_indices_physical[qubits_permutation[i]] for i in
+                                             range(len(qubits_permutation))]
             else:
-                qubits_permutation = tuple(qubit_indices_physical)
+                qubit_indices_measurement = tuple(qubit_indices_physical)
 
             for classical_index, qubit_index in zip(classical_indices,
-                                                    qubits_permutation):
+                                                    qubit_indices_measurement):
                 ansatz_circuit.measure(qubit=qubit_index, cbit=classical_index)
 
-            ansatz_circuit = qiskit_pass_manager.run(ansatz_circuit)
 
             bitstrings_permutation = None
 
-        #self.ansatz_circuit = ansatz_circuit
         self.ansatz.quantum_circuit = ansatz_circuit
         self.bitstrings_permutation = bitstrings_permutation
 
         # Initialize session management via mixin
         self._init_session_management(
-                        qiskit_backend=qiskit_backend,
-                        simulation=simulation,
-                        mock_context_manager_if_simulated=mock_context_manager_if_simulated,
-                        session_ibm=session_ibm,
-                        qiskit_sampler_options=qiskit_sampler_options)
-
+            qiskit_backend=qiskit_backend,
+            simulation=simulation,
+            mock_context_manager_if_simulated=mock_context_manager_if_simulated,
+            session_ibm=session_ibm,
+            qiskit_sampler_options=qiskit_sampler_options,
+            noiseless_simulation=self._noiseless_simulation)
 
         if not self._simulation:
-            anf.cool_print("WARNING:",'Running QAOA on real hardware.\n'
-                                      'Proceed with caution :-)','red')
+            anf.cool_print("WARNING:", 'Running QAOA on real hardware.\n'
+                                       'Proceed with caution :-)', 'red')
 
     @property
     def AnsatzSpecifier(self):
@@ -311,11 +310,11 @@ class QAOARunnerQiskit(QiskitSessionManagerMixin):
                  angles_MIXER,
                  number_of_samples: int):
 
-        #TODO(FBM): ADD MEASUREMENT NOISE!
+        # TODO(FBM): ADD MEASUREMENT NOISE!
 
-        if isinstance(angles_PHASE,float):
+        if isinstance(angles_PHASE, float):
             angles_PHASE = np.array([angles_PHASE])
-        if isinstance(angles_MIXER,float):
+        if isinstance(angles_MIXER, float):
             angles_MIXER = np.array([angles_MIXER])
 
         angles_dict = {self.parameters_PHASE: angles_PHASE,
@@ -323,36 +322,35 @@ class QAOARunnerQiskit(QiskitSessionManagerMixin):
 
         isa_circuit_resolved = self._program_gate_builder.parameters_resolver(quantum_circuit=self.ansatz_circuit,
                                                                               memory_map=angles_dict)
-        
+
         # Get or create cached sampler
         t0 = time.perf_counter()
         sampler = self._ensure_sampler()
         t1 = time.perf_counter()
-        
+
         _success, job, results, df_job_metadata = attempt_to_run_qiskit_circuits(
             circuits_isa=isa_circuit_resolved,
             sampler_ibm=sampler,
             number_of_shots=number_of_samples,
             max_attempts_run=5)
         t2 = time.perf_counter()
-        results:SamplerPubResult = results[0]
+
+        results: SamplerPubResult = results[0]
 
         if not _success:
             raise RuntimeError(f"Failed to run QAOA circuit after 5 attempts")
-        
 
-        if len(results.data.values())>1:
+        if len(results.data.values()) > 1:
             print(type(isa_circuit_resolved))
             print(results.data)
             raise ValueError("Multiple data keys found in results. ")
-
 
         data_c = list(results.data.values())[0]
         bitstrings_res, counts_res = get_counts_from_bit_array(bit_array=data_c)
         mapped_array = self.remap_bitstrings(bitstrings_array=bitstrings_res)
         bitstrings_array = np.repeat(mapped_array, counts_res, axis=0)
         t3 = time.perf_counter()
-        #print("Time to create sampler:", t1 - t0)
-        #print("Time to run circuit:", t2 - t1)
-        #print("Time to post-process results:", t3 - t2)
-        return job, bitstrings_array
+        # print("Time to create sampler:", t1 - t0)
+        # print("Time to run circuit:", t2 - t1)
+        # print("Time to post-process results:", t3 - t2)
+        return (job, df_job_metadata), bitstrings_array

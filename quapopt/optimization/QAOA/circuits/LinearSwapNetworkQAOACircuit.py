@@ -3,7 +3,7 @@
 
 
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 import numpy as np
 from pydantic import conint
@@ -145,6 +145,118 @@ def get_swap_network_permutation(number_of_qubits: int,
     return anf.concatenate_permutations(permutations=all_permutations)
 
 
+def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_network(
+        hamiltonian_phase: ClassicalHamiltonian,
+        depth: conint(ge=0),
+        time_block_size: conint(ge=0)) -> Optional[Dict[int, ClassicalHamiltonian]]:
+    """
+    Returns what Hamiltonian terms are implemented by time block ansatz with given parameters implemented via
+    linear swap network.
+    This function simply contains copy of lines of code from the class LinearSwapNetworkQAOACircuit that are responsible
+    for tracking abstract qubit indices
+
+    :param hamiltonian_phase:
+    Hamiltonian to be implemented
+    :param depth:
+    :param time_block_size:
+    :return:
+    """
+
+    number_of_qubits = hamiltonian_phase.number_of_qubits
+
+    if time_block_size is None:
+        time_block_size = number_of_qubits
+
+    assert isinstance(time_block_size, int), (
+        f"time_block_size must be an integer, not {type(time_block_size)}: {time_block_size}")
+
+    if time_block_size == number_of_qubits:
+        return {i: hamiltonian_phase for i in range(depth)}
+
+    tuple_0_abstract = tuple([(i, i + 1) for i in range(0, number_of_qubits - 1, 2)])
+    tuple_1_abstract = tuple([(i, i + 1) for i in range(1, number_of_qubits - 1, 2)])
+    linear_chains_pair_abstract = [tuple_0_abstract, tuple_1_abstract]
+
+    linear_chain_permutations_abstract = [get_linear_chain_permutation(swap_chain=chain,
+                                                                       number_of_qubits=number_of_qubits)
+                                          for chain in linear_chains_pair_abstract]
+    hamiltonian_phase_dict = hamiltonian_phase.get_hamiltonian_dictionary()
+
+    for qi in range(number_of_qubits):
+        for qj in range(qi + 1, number_of_qubits):
+            if (qi, qj) not in hamiltonian_phase_dict:
+                hamiltonian_phase_dict[(qi, qj)] = 0.0
+
+    current_indices_1q_abstract = list(range(number_of_qubits))
+    current_edges_abstract = linear_chains_pair_abstract[0]
+
+    current_permutation = list(range(number_of_qubits))
+    batches_hamiltonian = {}
+    for layer_index in range(depth):
+        total_number_of_cycles_so_far = layer_index * time_block_size
+
+        implemented_2q_set = set()
+        implemented_1q_set = None
+        if total_number_of_cycles_so_far % number_of_qubits == 0:
+            # print('yo:',current_indices_1q_abstract)
+
+            single_qubit_indices_abstract_PS = [xi for xi in current_indices_1q_abstract if
+                                                (xi,) in hamiltonian_phase_dict]
+            if len(single_qubit_indices_abstract_PS) > 0:
+                # single_qubit_coefficients = [hamiltonian_phase_dict[(i,)] for i in
+                #                              list(range(number_of_qubits)) if (i,) in hamiltonian_phase_dict]
+
+                implemented_1q_set = {(hamiltonian_phase_dict[(i,)], (i,))
+                                      for i in single_qubit_indices_abstract_PS
+                                      if hamiltonian_phase_dict[(i,)] != 0
+                                      }
+
+                # implemented_1q_set = {(_c, (_i,))
+                #                       for _c, _i in zip(single_qubit_coefficients, list(range(number_of_qubits)))
+                #                       if _c != 0.0
+                #                       }
+
+        offset_gates = layer_index * time_block_size
+        for gates_cycle_index in range(time_block_size):
+            current_coefficients = [hamiltonian_phase_dict[tup] for tup in current_edges_abstract]
+            linear_chain_permutation_here = linear_chain_permutations_abstract[
+                (offset_gates + gates_cycle_index) % 2]
+
+            # current_permutation = anf.concatenate_permutations(permutations=[linear_chain_permutation_here,
+            #                                                                  current_permutation,
+            #                                                                  ],
+            #                                                    number_of_qubits=number_of_qubits)
+            current_permutation = anf.concatenate_permutations(permutations=[current_permutation,
+                                                                             linear_chain_permutation_here,
+                                                                             ],
+                                                               number_of_qubits=number_of_qubits)
+            implemented_2q_set = implemented_2q_set.union({(_c, _pair)
+                                                           for _c, _pair in
+                                                           zip(current_coefficients, current_edges_abstract)
+                                                           if _c != 0.0
+                                                           })
+
+            current_edges_abstract = linear_chains_pair_abstract[(offset_gates + gates_cycle_index + 1) % 2]
+            current_edges_abstract = [tuple(sorted([current_permutation[xi] for xi in tup])) for tup in
+                                      current_edges_abstract]
+
+            current_indices_1q_abstract = [current_permutation[xi] for xi in current_indices_1q_abstract]
+
+        sorted_interactions = sorted(list(implemented_2q_set), key=lambda x: x[1])
+
+        batch_i = []
+        if implemented_1q_set is not None:
+            sorted_1q_terms = sorted(list(implemented_1q_set), key=lambda x: x[1])
+            batch_i += sorted_1q_terms
+        batch_i += sorted_interactions
+
+        CH_batch = ClassicalHamiltonian(hamiltonian_list_representation=batch_i,
+                                        number_of_qubits=number_of_qubits)
+        batches_hamiltonian[layer_index] = CH_batch
+
+    return batches_hamiltonian
+
+
 class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
     """
     QAOA ansatz circuit using Linear Swap Network topology for constrained qubit connectivity.
@@ -185,7 +297,7 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
     :type add_barriers: bool
     
     Example:
-        >>> from quapopt.hamiltonians import ClassicalHamiltonian
+        >>> from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
         >>> from quapopt.circuits.gates.logical import LogicalGateBuilderQiskit
         >>> # Create MaxCut Hamiltonian
         >>> ham = ClassicalHamiltonian([(1.0, (0, 1)), (1.0, (1, 2))], number_of_qubits=3)
@@ -544,102 +656,3 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
 
 
 
-
-if __name__ == '__main__':
-    # example usage
-    # define the Hamiltonian
-    number_of_qubits_test = 4
-    swap_chain_1_test = [(i, i + 1) for i in range(0, number_of_qubits_test - 1, 2)]
-    swap_chain_2_test = [(i, i + 1) for i in range(1, number_of_qubits_test - 1, 2)]
-
-    permutation_1_test = get_linear_chain_permutation(swap_chain=swap_chain_1_test,
-                                                      number_of_qubits=number_of_qubits_test)
-    permutation_2_test = get_linear_chain_permutation(swap_chain=swap_chain_2_test,
-                                                      number_of_qubits=number_of_qubits_test)
-    print("TESTING SWAP NETWORK PERMUTATIONS:")
-    print("linear chain 1:", swap_chain_1_test)
-    print("permutation 1:", permutation_1_test)
-    print("linear chain 2:", swap_chain_2_test)
-    print("permutation 2:", permutation_2_test)
-
-    time_block_size_test = None
-    depth_test = 1
-    swap_network_permutation_test = get_swap_network_permutation(number_of_qubits=number_of_qubits_test,
-                                                                 depth=depth_test,
-                                                                 time_block_size=time_block_size_test)
-    print("swap network permutation:", swap_network_permutation_test)
-    print("______________________________________________________________")
-
-    pairs_test = [(i, j) for i in range(number_of_qubits_test) for j in range(i + 1, number_of_qubits_test)]
-
-    # "name" coeffs via pair indices to make it easier to read in plots
-    coeffs = list([int(''.join([str(x) for x in sorted([i, j], reverse=True)])) for (i, j) in pairs_test])
-    hamiltonian_list_representation = [(coeff / 2, pair) for coeff, pair in zip(coeffs, pairs_test)]
-    hamiltonian_list_representation += [((i + 1) / 2, (i,)) for i in range(number_of_qubits_test)]
-
-    print({pair: coeff * 2 for coeff, pair in hamiltonian_list_representation})
-
-    hamiltonian_test = ClassicalHamiltonian(hamiltonian_list_representation=hamiltonian_list_representation,
-                                            number_of_qubits=number_of_qubits_test)
-
-    from quapopt.circuits.gates.logical.LogicalGateBuilderQiskit import LogicalGateBuilderQiskit
-
-    program_gate_builder_test = LogicalGateBuilderQiskit()
-    circuit_builder_LSN = LinearSwapNetworkQAOACircuit(sdk_name='qiskit',
-                                                       depth=depth_test,
-                                                       hamiltonian_phase=hamiltonian_test,
-                                                       program_gate_builder=program_gate_builder_test,
-                                                       time_block_size=time_block_size_test,
-                                                       phase_separator_type=PhaseSeparatorType.QAOA,
-                                                       mixer_type=MixerType.QAOA,
-                                                       linear_chains_pair_device=None)
-
-    quantum_circuit_qiskit = circuit_builder_LSN.quantum_circuit
-    # quantum_circuit_qiskit.draw(output='mpl').show()
-
-    # raise KeyboardInterrupt
-    from qiskit.quantum_info import Operator
-
-    from quapopt.optimization.QAOA.simulation.wrapped_functions import get_QAOA_ket
-    from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
-
-    # gamma_values = [0.1]*depth_test
-    # betas_values = [0.2]*depth_test
-
-    random_angles = np.random.uniform(-np.pi / 2, np.pi / 2, (2 * depth_test, 1000))
-    from tqdm.notebook import tqdm
-
-    gammas_list = circuit_builder_LSN.parameters[0]
-    betas_list = circuit_builder_LSN.parameters[1]
-    hamiltonian_matrix_diag = em.get_matrix_representation_of_classical_hamiltonian_diag(
-        hamiltonian_test.hamiltonian_list_representation,
-        number_of_qubits=number_of_qubits_test)
-
-    for angles_index in tqdm(list(range(random_angles.shape[1]))):
-        gamma_values = random_angles[:depth_test, angles_index]
-        betas_values = random_angles[depth_test:, angles_index]
-
-        memory_map = {}
-        for gamma_index, gamma_value in enumerate(gamma_values):
-            memory_map[gammas_list[gamma_index]] = gamma_value
-
-        for beta_index, beta_value in enumerate(betas_values):
-            memory_map[betas_list[beta_index]] = beta_value
-
-        # So qiskit labels qubits in reversed order, therefore for p = 1 the kets should be equal (SWAP network is
-        # complete reverse of the qiskit order)
-        executable_qiskit = program_gate_builder_test.resolve_parameters(quantum_circuit=quantum_circuit_qiskit,
-                                                                         memory_map=memory_map)
-
-        circOp = Operator.from_circuit(executable_qiskit)
-        circuit_unitary_qiskit = circOp.to_matrix()
-        ket_qiskit = circuit_unitary_qiskit[:, 0].reshape(-1, 1)
-
-        ket_direct = get_QAOA_ket(gammas=gamma_values,
-                                  betas=betas_values,
-                                  hamiltonian_matrix_diag=hamiltonian_matrix_diag)
-
-        dot_product = np.vdot(ket_qiskit, ket_direct)
-        overlap = abs(dot_product) ** 2
-
-        assert np.isclose(overlap, 1.0), f"Doverlap is not 1.0: {overlap}"

@@ -644,39 +644,23 @@ def get_physical_qubits_mapping_from_circuit(quantum_circuit: CircuitQiskit,
     # physical mapping should be given by the final layout
     nontrivial_physical = _get_nontrivial_qubit_indices_from_circuit(quantum_circuit=quantum_circuit,
                                                                      filter_ancillas=filter_ancillas)
-
+    #if no layout is present, we return trivial mapping
     if quantum_circuit.layout is None:
         return {i: i for i in nontrivial_physical}
 
-    final_layout = quantum_circuit.layout.final_virtual_layout(filter_ancillas=filter_ancillas)
+    #TODO(FBM): currently, this assumes that indices in input circuit were just from 0 to n.
+    # If we're using transpiler to generate layout, this assumption is usually correct, but not always.
 
-    if final_layout is None:
-        return {i:i for i in nontrivial_physical}
-
-    virtual_to_physical_dict = final_layout.get_virtual_bits()
-
-    return {k._index:v for k,v in virtual_to_physical_dict.items() if v in nontrivial_physical}
-
-
-
+    #this combines two things:
+    #1. Layout mapping = original qubits are changed to some other qubits.
+    #   Assumption: original qubits are from 0 to n (where n is total number of qubits in the circuit)
+    #2. Routing mapping = qubits after layout are swapped around to introduce interactions between qubits that are not
+    #   physically connected.
+    #The following function maps qubits from 0 to n (original), to qubits after Layout AND Routing.
+    final_layout = quantum_circuit.layout.final_index_layout(filter_ancillas=filter_ancillas)
 
 
-    initial_layout = quantum_circuit.layout.initial_virtual_layout(filter_ancillas=filter_ancillas)
-    final_layout = quantum_circuit.layout.final_virtual_layout(filter_ancillas=filter_ancillas)
-
-    if final_layout is None:
-        return {i: i for i in nontrivial_physical}
-
-    virtual_to_physical_dict = final_layout.get_virtual_bits()
-
-    if filter_ancillas:
-        qubits_filter = set(initial_layout.get_virtual_bits().values())
-        return {k._index: v for k, v in virtual_to_physical_dict.items() if v in qubits_no_ancillas}
-    else:
-        qubits_filter = nontrivial_physical
-
-    return
-
+    return {i:final_layout[i] for i in range(len(final_layout))}
 
 ##################################
 # COUPLING MAPS#

@@ -417,6 +417,35 @@ def solve_hamiltonian_python(hamiltonian):
 
 
 
+#Lazy monkey-patching of cupy
+try:
+    import cupy as cp
+except(ImportError,ModuleNotFoundError):
+    import numpy as cp
+import numpy as np
+
+def convert_cupy_numpy_array(array:np.ndarray|cp.ndarray,
+                             output_backend:str)->np.ndarray|cp.ndarray:
+    from quapopt import AVAILABLE_SIMULATORS
+    if 'cupy' not in AVAILABLE_SIMULATORS:
+        return array
+    if output_backend == 'numpy':
+        if isinstance(array, (cp.ndarray,list,tuple)):
+            return cp.asnumpy(array)
+        elif isinstance(array,np.ndarray):
+            return array
+        else:
+            raise ValueError(f'array should be np.nddarray/cp.nddarray/list/tuple, not {type(array)}')
+    elif output_backend == 'cupy':
+        if isinstance(array, (np.ndarray,list,tuple)):
+            return cp.asarray(array)
+        elif isinstance(array,cp.ndarray):
+            return array
+        else:
+            raise ValueError(f'array should be np.nddarray/cp.nddarray/list/tuple, not {type(array)}')
+    else:
+        raise ValueError(f'output_backend should be either "numpy" or "cupy", not {output_backend}')
+
 
 #####################################################
 #MARGINAL CALCULATION FUNCTIONS#

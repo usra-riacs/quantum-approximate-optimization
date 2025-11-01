@@ -1,13 +1,11 @@
 # # Copyright 2025 USRA
 # # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# 
-
 import glob
 import os
+import platform
 from setuptools import setup, Extension, find_packages
 from Cython.Build import cythonize
-import numpy, sysconfig
-
+import numpy, sysconfig, sys
 # --- Configuration ---
 # The name of the main package directory, relative to the *parent* of setup.py
 PACKAGE_NAME = "quapopt"
@@ -41,6 +39,44 @@ print("________________________________________")
 if not pyx_files:
     print("Warning: No .pyx files found. Check the PACKAGE_NAME and file locations.")
 
+# --- Platform-specific compiler configuration ---
+system = platform.system()
+machine = platform.machine()
+print(f"\nDetected platform: {system} ({machine})")
+
+# Configure compiler flags based on platform
+extra_compile_args = []
+extra_link_args = []
+
+if system.lower() == "darwin":  # macOS
+    # macOS uses clang, which needs specific C++ standard flags
+    extra_compile_args = [
+        "-stdlib=libc++",       # Use libc++ standard library (clang default)
+    ]
+    extra_link_args = [
+        "-stdlib=libc++",       # Link with libc++
+    ]
+
+    # For Apple Silicon (M1/M2/M3), we might need additional flags
+    if machine == "arm64":
+        print("Detected Apple Silicon (ARM64)")
+        # Ensure we're building for the native architecture
+        extra_compile_args.append("-arch")
+        extra_compile_args.append("arm64")
+        extra_link_args.append("-arch")
+        extra_link_args.append("arm64")
+        # Set minimum macOS version for Apple Silicon
+        extra_compile_args.append("-mmacosx-version-min=11.0")
+    else:
+        # Intel Mac
+        extra_compile_args.append("-mmacosx-version-min=10.9")
+
+    print("Using macOS-specific compiler flags (clang with libc++)")
+else:
+    print(f"Using default compiler flags")
+
+
+
 # --- Create Extension objects ---
 extensions = []
 for path_abs in pyx_files:
@@ -55,13 +91,22 @@ for path_abs in pyx_files:
 
     extensions.append(
         Extension(
-            module_name, # The Python import path (e.g., quapopt.subfolder.cython_module)
-            [rel_path], # List containing the source .pyx file path (absolute)
+            module_name,
+            [rel_path],
             include_dirs=[numpy.get_include(),
                           sysconfig.get_paths()["include"]
-                          ], # Include NumPy headers
+                          ],
+            language="c++",
+            extra_compile_args=extra_compile_args,
+            extra_link_args=extra_link_args,
         )
     )
+
+
+
+
+
+
 print("\n==============Created extensions, running setup...==============\n")
 # --- Run setup ---
 setup(

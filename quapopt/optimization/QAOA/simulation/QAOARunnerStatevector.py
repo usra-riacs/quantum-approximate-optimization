@@ -18,7 +18,7 @@ from quapopt.optimization.QAOA import QAOAFunctionInputFormat as FIFormat
 from quapopt.optimization.QAOA.QAOARunnerBase import QAOARunnerBase
 from quapopt.optimization import EnergyResultMain
 from quapopt.optimization.QAOA import QAOAResult
-
+from quapopt import ancillary_functions as anf
 
 class QAOARunnerStatevector(QAOARunnerBase):
     """
@@ -34,6 +34,8 @@ class QAOARunnerStatevector(QAOARunnerBase):
                  logging_level: Optional[LoggingLevel] = None,
                  logger_kwargs: Optional[Dict[str, Any]] = None,
                  ) -> None:
+
+
 
 
         super().__init__(hamiltonian_representations_cost=hamiltonian_representations_cost,
@@ -83,7 +85,8 @@ class QAOARunnerStatevector(QAOARunnerBase):
                  measurement_noise: ClassicalMeasurementNoiseSampler = None,
                  input_format: FIFormat = FIFormat.direct_list,
                  number_of_samples=None,
-                 numpy_rng_sampling=None
+                 numpy_rng_sampling=None,
+                 return_only_statevector:bool=False
                  ) -> QAOAResult:
         assert number_of_samples is None or number_of_samples == np.inf,\
             "This method is only implemented for number_of_samples=None or np.inf"
@@ -108,9 +111,20 @@ class QAOARunnerStatevector(QAOARunnerBase):
         if self._backend_name.lower() in ['qokit']:
             _result = simulator_i.simulate_qaoa(gammas_j * 2, betas_j)
             statevector_ideal = simulator_i.get_statevector(_result).reshape(-1, 1)
+
+        elif self._backend_name.lower() in ['python']:
+            _result = simulator_i.get_qaoa_statevector(angles_PS=gammas_j,
+                                                       angles_mixer=betas_j)
+            statevector_ideal = _result
+
         else:
             raise NotImplementedError('Only qokit simulator is supported')
 
+        if return_only_statevector:
+            return statevector_ideal
+
+        statevector_ideal = anf.convert_cupy_numpy_array(array=statevector_ideal,
+                                                         output_backend='numpy')
         prob_distro_ideal = em.cython_abs_squared(statevector_ideal.reshape(-1))
         exp_value_noiseless = em.cython_vdot(vector1=prob_distro_ideal.astype(np.float32),
                                              vector2=hamiltonian_i.spectrum.astype(np.float32))

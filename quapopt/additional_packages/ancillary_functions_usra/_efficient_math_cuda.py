@@ -25,7 +25,6 @@ def _compute_all_energies_integers(hamiltonian_list_representation:List[Tuple[Un
                                    dtype=np.float32):
     number_of_qubits = max([max(interaction[1]) for interaction in hamiltonian_list_representation]) + 1
     dim = 2**number_of_qubits
-    #print("YOOOO", dim, number_of_qubits)
 
     energies_array = cuda.to_device(np.zeros(dim, dtype=dtype))
 

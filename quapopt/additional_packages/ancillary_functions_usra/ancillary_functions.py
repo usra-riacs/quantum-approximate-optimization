@@ -637,3 +637,52 @@ def df_column_apply_function_parallelized(series: pd.Series,
 
 
 
+def apply_permutation_operator_to_statevector(statevector: np.ndarray,
+                                              permutation: Tuple[int, ...]|List[int]|Tuple[Tuple[int,int]]|List[Tuple[int,int]]):
+    """
+    Apply a qubit permutation to a statevector without materializing the full permutation matrix.
+
+    This function efficiently permutes qubits in a statevector by directly manipulating indices
+    rather than constructing and applying a full permutation matrix, which is memory-efficient
+    for large systems.
+
+    :param statevector: The input statevector as a 1D numpy array of shape (2**n_qubits,)
+    :param permutation: Tuple or list specifying the qubit permutation.
+                       permutation[i] = j means qubit i goes to position j.
+                       OR
+                       list/tuple of equivalent transpositions, e.g. [(0, 1), (2, 3)]
+
+    :return: Permuted statevector as a numpy array
+
+    Example:
+        # 3-qubit system with permutation (2, 1, 0) - reverses qubit order
+        statevector = np.array([1, 0, 0, 0, 0, 0, 0, 0])  # |000> state
+        permuted = apply_permutation_operator_to_statevector(statevector, (2, 1, 0))
+    """
+    from sympy.combinatorics.permutations import Permutation
+
+    # Determine number of qubits from statevector size
+    number_of_qubits = int(np.log2(len(statevector)))
+
+    if isinstance(permutation[0],(tuple,list)):
+        assert len(permutation[0]) == 2, "If permutation is a list of tuples, it should contain exactly two elements."
+        transpositions = permutation
+    else:
+        permutation = list(permutation)
+        # Get transpositions that implement this permutation
+        perm_obj = Permutation(permutation)
+        transpositions = perm_obj.transpositions()
+
+    # Reshape statevector to n-qubit tensor
+    state_tensor = statevector.reshape([2] * number_of_qubits)
+
+    # Apply each transposition by swapping tensor axes
+    for i, j in transpositions:
+        state_tensor = np.swapaxes(state_tensor, i, j)
+
+    # Flatten back to statevector
+    return state_tensor.reshape(-1)
+
+
+
+

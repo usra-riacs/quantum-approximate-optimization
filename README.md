@@ -5,7 +5,7 @@ Set of tools to implement quantum optimization for classical problems (diagonal 
 ## Installation
 
 ### Operating system
-This project has been tested only on Ubuntu.
+This project has been tested mainly on Ubuntu, with limited tests on Windows and MacOS.
 
 ### Clone repository
 

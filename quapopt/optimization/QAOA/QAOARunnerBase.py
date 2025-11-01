@@ -17,12 +17,12 @@ from quapopt.optimization.QAOA import (PhaseSeparatorType,
                                        MixerType,
                                        AnsatzSpecifier,
                                        QAOAFunctionInputFormat as FIFormat,
-                                       QuantumOptimizationSpecifier,
                                        _ANGLES_BOUNDS_LAYER_PHASE,
                                        _ANGLES_BOUNDS_LAYER_MIXER, QubitMappingType)
 from quapopt.optimization.QAOA import QAOAResult
 from quapopt.optimization.QAOA.implementation.QAOARunnerQiskit import QAOARunnerQiskit
 
+from quapopt.optimization.QAOA.simulation.direct.QAOASimulatorPython import QAOASimulatorPython
 
 class QAOARunnerBase(HamiltonianOptimizer):
     """
@@ -483,6 +483,42 @@ class QAOARunnerBase(HamiltonianOptimizer):
 
         self._backends = qiskit_simulators
         self._backend_name = f"qiskit"
+
+
+
+    def initialize_backend_python(self,
+                                  backend: Optional[str] = 'auto',
+                                  time_block_size:float=1.0,
+                                  time_block_seed:int=0,
+                                  time_block_partition:Optional[Dict[int,List[Tuple[int,...]]]]=None,
+                                 ):
+
+        if self.number_of_qubits > 25:
+            raise ValueError('The number of qubits is too large for our simulator.'
+                             'Please use a different backend_computation.')
+
+
+
+
+        python_simulators = {}
+        for i, ham_i in self.hamiltonian_representations_phase.items():
+            simulator_i = QAOASimulatorPython(hamiltonian_phase=ham_i,
+                                              backend=backend,
+                                              time_block_size=time_block_size,
+                                              time_block_seed=time_block_seed,
+                                              time_block_partition=time_block_partition)
+
+            python_simulators[i] = simulator_i
+
+        self._backends = python_simulators
+        self._backend_name = f"python"
+
+
+
+
+
+
+
 
     def _update_history(self,
                         qaoa_result: QAOAResult):

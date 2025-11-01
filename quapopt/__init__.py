@@ -11,8 +11,8 @@ except (ImportError, ModuleNotFoundError):
     pass
 
 try:
-    import numba.cuda
-    if numba.cuda.is_available():
+    import cupy.cuda
+    if cupy.cuda.is_available():
         AVAILABLE_SIMULATORS += ['cuda']
 except (ImportError, ModuleNotFoundError):
     pass

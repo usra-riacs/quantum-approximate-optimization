@@ -1,8 +1,7 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-
-
-
+# Use, duplication, or disclosure without authors' permission is strictly prohibited.
+import time
 from typing import List, Optional, Tuple, Dict, Any, Union
 
 import numpy as np
@@ -100,39 +99,36 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
 
     def log_results(self,
                      qaoa_result: QAOAResult,
-                     additional_annotations: Optional[Dict[str, Any]] = None) -> None:
+                     additional_annotations: Optional[Dict[str, Any]] = None,
+                    table_name_prefix:Optional[str]=None) -> None:
 
 
         if self.results_logger is None or self.logging_level in [None, LoggingLevel.NONE]:
             return
 
-
         optimization_overview_df = qaoa_result.to_dataframe_main()
-        filepath = self.results_logger.write_results(dataframe=optimization_overview_df,
+        self.results_logger.write_results(dataframe=optimization_overview_df,
                                           data_type=SNDT.OptimizationOverview,
-                                          additional_annotation_dict=additional_annotations)
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_prefix=table_name_prefix)
 
-        if isinstance(qaoa_result.bitstrings_energies, cp.ndarray):
-            energies_save = cp.asnumpy(qaoa_result.bitstrings_energies)
-        elif isinstance(qaoa_result.bitstrings_energies[0], cp.ndarray):
-            energies_save = [float(x) for x in qaoa_result.bitstrings_energies]
-        else:
-            energies_save = qaoa_result.bitstrings_energies
-
+        energies_save = qaoa_result.bitstrings_energies.tolist()
 
         energies_main = pd.DataFrame(data={SNV.Energy.id_long: energies_save})
         energies_dt = SNDT.Energies
 
         self.results_logger.write_results(dataframe=qaoa_result.annotate_dataframe(energies_main),
                                           data_type=energies_dt,
-                                          additional_annotation_dict=additional_annotations)
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_prefix=table_name_prefix)
 
-        bitstrings_main = pd.DataFrame(data={SNV.Bitstring.id_long: qaoa_result.bitstrings_array})
+        bitstrings_main = pd.DataFrame(data={SNV.Bitstring.id_long: qaoa_result.bitstrings_array.tolist()})
 
 
         self.results_logger.write_results(dataframe=qaoa_result.annotate_dataframe(bitstrings_main),
                                           data_type=SNDT.Bitstrings,
-                                          additional_annotation_dict=additional_annotations)
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_prefix=table_name_prefix)
 
     def run_qaoa(self,
                  *args,
@@ -153,8 +149,7 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
             if backend_name is None:
                 backend_name = _initialize_backend_kwargs.get('backend_name', None)
                 if backend_name is None:
-                    backend_name = 'qokit'
-                    _initialize_backend_kwargs['qokit_backend'] = 'auto'
+                    backend_name = 'python'
 
             if 'backend_name' in _initialize_backend_kwargs:
                 del _initialize_backend_kwargs['backend_name']
@@ -167,6 +162,8 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
             elif backend_name == 'qiskit':
                 self.initialize_backend_qiskit(qaoa_depth=qaoa_depth,
                                                **_initialize_backend_kwargs)
+            elif backend_name == 'python':
+                self.initialize_backend_python(**_initialize_backend_kwargs)
             else:
                 raise ValueError('Only qokit and qiskit backends are supported.')
         else:
@@ -203,13 +200,29 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
 
         elif self._backend_name.lower() in ['qiskit']:
             statevector_ideal = None
-            _result, bitstrings_array = backend_i.run_qaoa(angles_PHASE=gammas_j.reshape(qaoa_depth),
+            (_result,df_job_metadata), bitstrings_array = backend_i.run_qaoa(angles_PHASE=gammas_j.reshape(qaoa_depth),
                                                                  angles_MIXER=betas_j.reshape(qaoa_depth),
                                                                  number_of_samples=number_of_samples)
 
 
+            if self.results_logger is not None and self.logging_level not in [None, LoggingLevel.NONE]:
+
+                self.results_logger.write_results(dataframe=df_job_metadata,
+                                                  data_type=SNDT.JobMetadata,
+                                                  additional_annotation_dict=None)
+
+        elif self._backend_name.lower() in ['python']:
+            _result = backend_i.get_qaoa_statevector(angles_mixer=betas_j.reshape(qaoa_depth),
+                                                        angles_PS=gammas_j.reshape(qaoa_depth))
+            statevector_ideal = _result.reshape(-1, )
+            bitstrings_array = em.sample_from_statevector(statevector=statevector_ideal,
+                                                            number_of_samples=number_of_samples,
+                                                            numpy_rng=numpy_rng_sampling,
+                                                            sampling_method='auto')
+
+
         else:
-            raise NotImplementedError('Only qokit simulator is supported')
+            raise ValueError(f"Unsupported backend: {self._backend_name}; supported backends: qokit, qiskit, python")
 
 
         energies_array = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array)
@@ -234,14 +247,26 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
         # log results to file
 
         if measurement_noise is None:
-            self.log_results(qaoa_result=qaoa_result)
+            #if there is no measurement noise, we can log the results without additional annotations
+            table_name_prefix_no_cmns = None
+            additional_annotations_no_cmns = None
+        else:
+            #if there is measurement noise, the noiseless results are "additional" because they are not used in the
+            #main optimization loop
+            table_name_prefix_no_cmns = 'CMNS=False'
+            additional_annotations_no_cmns = None
+
+        self.log_results(qaoa_result=qaoa_result,
+                         table_name_prefix=table_name_prefix_no_cmns,
+                         additional_annotations=additional_annotations_no_cmns)
+
+        if measurement_noise is None:
             if return_raw_result:
                 return qaoa_result, _result
             return qaoa_result
 
         enegy_result_noiseless = qaoa_result.energy_result
-        bitstrings_array_noisy = measurement_noise.add_noise_to_samples(ideal_samples=bitstrings_array,
-                                                                        rng=numpy_rng_sampling)
+        bitstrings_array_noisy = measurement_noise.add_noise_to_samples(ideal_samples=bitstrings_array)
         energies_noisy = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array_noisy)
         # energies_noisy = em.calculate_energies_from_bitstrings_2_local(bitstrings_array=bitstrings_array_noisy,
         #                                           adjacency_matrix=hamiltonian_i.get_adjacency_matrix(),
@@ -263,7 +288,7 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
         qaoa_result.energy_result.bitstring_best_noisy = qaoa_result.bitstrings_array[0]
         qaoa_result.update_main_energy(noisy=True)
 
-        # TODO(FBM): consider also adding logging of noisy vs noiseless results
+        # TODO(FBM): consider also adding logging of noisy vs noiseless results?
         self.log_results(qaoa_result=qaoa_result)
 
         if return_raw_result:

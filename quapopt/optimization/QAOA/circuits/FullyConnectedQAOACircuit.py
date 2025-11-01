@@ -11,7 +11,10 @@ from quapopt.circuits.gates import AbstractProgramGateBuilder
 from quapopt.circuits.gates import _SUPPORTED_SDKs, pyquil, qiskit, cirq, AbstractCircuit
 from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
-from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit, build_fractional_time_block_ansatz_qiskit
+from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit
+from quapopt.optimization.QAOA.circuits.time_block_ansatz import build_fractional_time_block_ansatz_qiskit
+
+
 
 
 class FullyConnectedQAOACircuit(MappedAnsatzCircuit):

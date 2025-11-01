@@ -361,13 +361,17 @@ class EnergyResultMain:
         return self
 
     def to_dataframe_full(self):
+
+
+
+
         return pd.DataFrame(data={
             f"{SNV.EnergyMean.id_long}{SNV.Noiseless.id_long}": [self.energy_mean_noiseless],
             f"{SNV.EnergyMean.id_long}{SNV.Noisy.id_long}": [self.energy_mean_noisy],
             f"{SNV.EnergyBest.id_long}{SNV.Noiseless.id_long}": [self.energy_best_noiseless],
             f"{SNV.EnergyBest.id_long}{SNV.Noisy.id_long}": [self.energy_best_noisy],
-            f"{SNV.BitstringBest.id_long}{SNV.Noiseless.id_long}": [self.bitstring_best_noiseless],
-            f"{SNV.BitstringBest.id_long}{SNV.Noisy.id_long}": [self.bitstring_best_noisy]},
+            f"{SNV.BitstringBest.id_long}{SNV.Noiseless.id_long}": [self.bitstring_best_noiseless.tolist() if self.bitstring_best_noiseless is not None else None],
+            f"{SNV.BitstringBest.id_long}{SNV.Noisy.id_long}": [self.bitstring_best_noisy.tolist() if self.bitstring_best_noisy is not None else None],},
         )
 
     def to_dataframe_main(self):
@@ -376,7 +380,7 @@ class EnergyResultMain:
             data={f"{SNV.EnergyMean.id_long}": [float(self.energy_mean) if self.energy_mean is not None else None],
                   f"{SNV.EnergyBest.id_long}": [float(self.energy_best) if self.energy_best is not None else None],
                   f"{SNV.BitstringBest.id_long}": [
-                      tuple(self.bitstring_best) if self.bitstring_best is not None else None]},
+                      self.bitstring_best.tolist() if self.bitstring_best is not None else None]},
         )
 
 
