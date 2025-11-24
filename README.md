@@ -8,6 +8,7 @@ Set of tools to implement quantum optimization for classical problems (diagonal 
 This project has been tested mainly on Ubuntu, with limited tests on Windows and MacOS.
 
 Note: on MacOS, you might need to comment out all pixi's "features" that have "gpu" in the name. 
+To do so, simply go to pixi.toml file and comment out all lines that contain "gpu".
 This is because pixi attempts to solve the environments for all systems at the same time, and MacOS does not support CUDA.
 
 
