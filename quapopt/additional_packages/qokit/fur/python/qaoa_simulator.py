@@ -3,10 +3,13 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
 from collections.abc import Sequence
+
 import numpy as np
-from ..qaoa_simulator_base import QAOAFastSimulatorBase, CostsType, TermsType, ParamType
+
 from ..diagonal_precomputation import precompute_vectorized_cpu_parallel
+from ..qaoa_simulator_base import CostsType, ParamType, QAOAFastSimulatorBase, TermsType
 from .qaoa_fur import apply_qaoa_furx, apply_qaoa_furxy_complete, apply_qaoa_furxy_ring
 
 
@@ -14,7 +17,9 @@ def little_to_big_endian(arr):
     n = int(np.log2(len(arr)))  # Calculate the value of N
 
     # Create a binary representation of indices
-    binary_indices = np.vectorize(lambda x: np.binary_repr(x, width=n))(np.arange(len(arr)))
+    binary_indices = np.vectorize(lambda x: np.binary_repr(x, width=n))(
+        np.arange(len(arr))
+    )
     reversed_indices = np.array([int(bin_idx[::-1], 2) for bin_idx in binary_indices])
     new_arr = arr[reversed_indices]
     return new_arr
@@ -37,7 +42,9 @@ class QAOAFastSimulatorPythonBase(QAOAFastSimulatorBase):
     def default_sv0(self):
         return np.full(self.n_states, 1.0 / np.sqrt(self.n_states), dtype="complex")
 
-    def _apply_qaoa(self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs
+    ):
         raise NotImplementedError
 
     def simulate_qaoa(
@@ -66,7 +73,13 @@ class QAOAFastSimulatorPythonBase(QAOAFastSimulatorBase):
     def get_probabilities(self, result: np.ndarray, **kwargs) -> np.ndarray:
         return np.abs(result) ** 2
 
-    def get_expectation(self, result: np.ndarray, costs: np.ndarray | None = None, optimization_type="min", **kwargs) -> float:
+    def get_expectation(
+        self,
+        result: np.ndarray,
+        costs: np.ndarray | None = None,
+        optimization_type="min",
+        **kwargs,
+    ) -> float:
         if costs is None:
             costs = self._hc_diag
         if optimization_type == "max":
@@ -74,7 +87,12 @@ class QAOAFastSimulatorPythonBase(QAOAFastSimulatorBase):
         return np.dot(costs, np.abs(result) ** 2)
 
     def get_overlap(
-        self, result: np.ndarray, costs: CostsType | None = None, indices: np.ndarray | Sequence[int] | None = None, optimization_type="min", **kwargs
+        self,
+        result: np.ndarray,
+        costs: CostsType | None = None,
+        indices: np.ndarray | Sequence[int] | None = None,
+        optimization_type="min",
+        **kwargs,
     ) -> float:
         """
         Compute the overlap between the statevector and the ground state
@@ -101,17 +119,27 @@ class QAOAFastSimulatorPythonBase(QAOAFastSimulatorBase):
 
 
 class QAOAFURXSimulator(QAOAFastSimulatorPythonBase):
-    def _apply_qaoa(self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs
+    ):
         apply_qaoa_furx(sv, gammas, betas, self._hc_diag, self.n_qubits)
 
 
 class QAOAFURXYRingSimulator(QAOAFastSimulatorPythonBase):
-    def _apply_qaoa(self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs
+    ):
         n_trotters = kwargs.get("n_trotters", 1)
-        apply_qaoa_furxy_ring(sv, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters)
+        apply_qaoa_furxy_ring(
+            sv, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters
+        )
 
 
 class QAOAFURXYCompleteSimulator(QAOAFastSimulatorPythonBase):
-    def _apply_qaoa(self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self, sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], **kwargs
+    ):
         n_trotters = kwargs.get("n_trotters", 1)
-        apply_qaoa_furxy_complete(sv, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters)
+        apply_qaoa_furxy_complete(
+            sv, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters
+        )

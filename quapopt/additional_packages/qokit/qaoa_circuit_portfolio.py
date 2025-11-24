@@ -2,11 +2,15 @@
 # // SPDX-License-Identifier: Apache-2.0
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
-import qiskit
 import numpy as np
-from .portfolio_optimization import yield_all_indices_cosntrained, get_configuration_cost
-from qiskit import QuantumCircuit, execute, Aer, QuantumRegister
+import qiskit
+from qiskit import Aer, QuantumCircuit, QuantumRegister, execute
 from qiskit.circuit import ParameterVector
+
+from .portfolio_optimization import (
+    get_configuration_cost,
+    yield_all_indices_cosntrained,
+)
 from .utils import reverse_array_index_bit_order, state_to_ampl_counts
 
 
@@ -32,7 +36,9 @@ def get_cost_circuit(po_problem, qc, gamma):
     cov = po_problem["cov"]
     N = po_problem["N"]
     for i in range(N):
-        qc.rz((means[i] - q * np.sum(cov[i, :])) * gamma, i)  # there is a 0.5 inside rz and rzz
+        qc.rz(
+            (means[i] - q * np.sum(cov[i, :])) * gamma, i
+        )  # there is a 0.5 inside rz and rzz
     for i in range(N - 1):
         for j in range(i + 1, N):
             qc.rzz(q * cov[i, j] * gamma, i, j)
@@ -65,12 +71,14 @@ def get_mixer_Txy(qc, beta, minus=False, T=None):
     for _ in range(int(T)):
         for i in range(0, N - 1, 2):
             # even Exp[-j*angle*(XX+YY)]
-            # qc.append(qiskit.circuit.library.XXPlusYYGate(4 * beta), [i, i + 1])
-            qc.append(qiskit.circuit.library.XXPlusYYGate(4 * beta), [N - 2 - i, N - 1 - i])
+            qc.append(
+                qiskit.circuit.library.XXPlusYYGate(4 * beta), [N - 2 - i, N - 1 - i]
+            )
         for i in range(1, N - 1, 2):
             # odd Exp[-j*angle*(XX+YY)]
-            # qc.append(qiskit.circuit.library.XXPlusYYGate(4 * beta), [i, i + 1])
-            qc.append(qiskit.circuit.library.XXPlusYYGate(4 * beta), [N - 2 - i, N - 1 - i])
+            qc.append(
+                qiskit.circuit.library.XXPlusYYGate(4 * beta), [N - 2 - i, N - 1 - i]
+            )
         # last uniary
         qc.append(qiskit.circuit.library.XXPlusYYGate(4 * beta), [N - 1, 0])
     return qc
@@ -118,7 +126,9 @@ def get_qaoa_circuit(
     for i in range(depth):
         circuit = get_cost_circuit(po_problem, circuit, gammas[i])
         if mixer.lower() == "trotter_ring":
-            circuit = get_mixer_Txy(circuit, betas[i], minus=minus, T=T)  # minus should be false
+            circuit = get_mixer_Txy(
+                circuit, betas[i], minus=minus, T=T
+            )  # minus should be false
         elif mixer.lower() == "rx":
             circuit = get_mixer_RX(circuit, betas[i])
         else:
@@ -129,7 +139,15 @@ def get_qaoa_circuit(
 
 
 def get_parameterized_qaoa_circuit(
-    po_problem, depth, ini="dicke", mixer="trotter_ring", T=1, ini_state=None, save_state=True, minus=False, return_parameter_vectors: bool = False
+    po_problem,
+    depth,
+    ini="dicke",
+    mixer="trotter_ring",
+    T=1,
+    ini_state=None,
+    save_state=True,
+    minus=False,
+    return_parameter_vectors: bool = False,
 ):
     """
     Put all ingredients together to build up a qaoa circuit parameterized by gamma & beta
@@ -155,7 +173,9 @@ def get_parameterized_qaoa_circuit(
     for i in range(depth):
         circuit = get_cost_circuit(po_problem, circuit, gammas[i])
         if mixer.lower() == "trotter_ring":
-            circuit = get_mixer_Txy(circuit, betas[i], minus=minus, T=T)  # minus should be false
+            circuit = get_mixer_Txy(
+                circuit, betas[i], minus=minus, T=T
+            )  # minus should be false
         elif mixer.lower() == "rx":
             circuit = get_mixer_RX(circuit, betas[i])
         else:
@@ -186,7 +206,9 @@ def get_energy_expectation_sv(po_problem, samples):
     # convert state vector to dictionary
     samples = state_to_ampl_counts(samples)
     for config, wf in samples.items():
-        expectation_value += (np.abs(wf) ** 2) * get_configuration_cost(po_problem, config)
+        expectation_value += (np.abs(wf) ** 2) * get_configuration_cost(
+            po_problem, config
+        )
 
     return expectation_value
 

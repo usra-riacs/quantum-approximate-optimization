@@ -2,9 +2,9 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 import copy
-from typing import List, Tuple, Optional, Dict
+from typing import Dict, List, Optional, Tuple
 
-from quapopt.circuits.gates import AbstractCircuit, AbstractAngle
+from quapopt.circuits.gates import AbstractAngle, AbstractCircuit
 from quapopt.optimization.QAOA import AnsatzSpecifier
 
 
@@ -12,13 +12,12 @@ class MappedAnsatzCircuit:
     """Build a parameterized quantum approximate optimization circuit program for a device."""
 
     def __init__(
-            self,
-            quantum_circuit: AbstractCircuit,
-            parameters: List[AbstractAngle],
-            logical_to_physical_qubits_map: Tuple[int, ...],
-            qubit_mapping_permutation: Optional[Tuple[int, ...]],
-            ansatz_specifier: Optional[AnsatzSpecifier] = None,
-
+        self,
+        quantum_circuit: AbstractCircuit,
+        parameters: List[AbstractAngle],
+        logical_to_physical_qubits_map: Tuple[int, ...],
+        qubit_mapping_permutation: Optional[Tuple[int, ...]],
+        ansatz_specifier: Optional[AnsatzSpecifier] = None,
     ):
         parameters_formatted = []
         for param in parameters_formatted:
@@ -28,8 +27,10 @@ class MappedAnsatzCircuit:
         self._parameters = parameters
 
         self._logical_to_physical_qubits_map = logical_to_physical_qubits_map
-        self._physical_to_logical_qubits_map = {device_qubit: qubit for qubit, device_qubit in
-                                                enumerate(logical_to_physical_qubits_map)}
+        self._physical_to_logical_qubits_map = {
+            device_qubit: qubit
+            for qubit, device_qubit in enumerate(logical_to_physical_qubits_map)
+        }
         self._qubit_mapping_permutation = qubit_mapping_permutation
 
         self.AnsatzSpecifier = ansatz_specifier
@@ -42,7 +43,6 @@ class MappedAnsatzCircuit:
     def quantum_circuit(self, value: AbstractCircuit):
         if not isinstance(value, AbstractCircuit):
             raise TypeError("quantum_circuit must be an instance of AbstractCircuit.")
-        # print("WARNING:", "Setting quantum_circuit directly is not recommended. Use the constructor instead.")
 
         self._quantum_circuit = value
 

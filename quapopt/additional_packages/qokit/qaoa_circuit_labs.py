@@ -4,6 +4,7 @@
 ###############################################################################
 # QAOA circuit for some Z objective
 from collections.abc import Sequence
+
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 
@@ -20,7 +21,6 @@ def append_z_prod_term(qc: QuantumCircuit, term: Sequence, gamma: float) -> None
             evolution time for interaction
 
     """
-    # term_weight, term = term
     term_weight = len(term)
     assert all(term[i] < term[i + 1] for i in range(len(term) - 1))
     if term_weight == 4:
@@ -44,7 +44,9 @@ def append_z_prod_term(qc: QuantumCircuit, term: Sequence, gamma: float) -> None
             qc.cx(control, target)
 
 
-def append_cost_operator_circuit(qc: QuantumCircuit, terms: Sequence, gamma: float) -> None:
+def append_cost_operator_circuit(
+    qc: QuantumCircuit, terms: Sequence, gamma: float
+) -> None:
     for term in terms:
         append_z_prod_term(qc, term, gamma)
 
@@ -60,7 +62,13 @@ def append_mixer_operator_circuit(qc: QuantumCircuit, beta: float) -> None:
         append_x_term(qc, n, beta)
 
 
-def get_qaoa_circuit(N: int, terms: Sequence, gamma: Sequence, beta: Sequence, save_statevector: bool = True) -> QuantumCircuit:
+def get_qaoa_circuit(
+    N: int,
+    terms: Sequence,
+    gamma: Sequence,
+    beta: Sequence,
+    save_statevector: bool = True,
+) -> QuantumCircuit:
     """Generates a circuit for Hamiltonian of the form \sum_{term \in terms} \prod_{j \in term} Z_j
 
     Parameters
@@ -98,7 +106,13 @@ def get_qaoa_circuit(N: int, terms: Sequence, gamma: Sequence, beta: Sequence, s
     return qc
 
 
-def get_parameterized_qaoa_circuit(N: int, terms: Sequence, p: int, save_statevector: bool = True, return_parameter_vectors: bool = False) -> QuantumCircuit:
+def get_parameterized_qaoa_circuit(
+    N: int,
+    terms: Sequence,
+    p: int,
+    save_statevector: bool = True,
+    return_parameter_vectors: bool = False,
+) -> QuantumCircuit:
     """Generates a parameterized circuit for Hamiltonian of the form \sum_{term \in terms} \prod_{j \in term} Z_j
     This version is recommended for long circuits
 

@@ -2,11 +2,11 @@
 # // SPDX-License-Identifier: Apache-2.0
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
-import qiskit
-from qiskit import QuantumRegister, QuantumCircuit, BasicAer, execute
+import math
 
-import math, numpy, scipy
-
+import numpy
+import scipy
+from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.opflow import I, X, Y
 
 """ get_ring_xy_mixer(N)
@@ -98,7 +98,6 @@ def blocki(n, l=1, qin="xx"):
 
 
 def blockii(n, l, qin="xxx"):
-    # print("blockii{}{} on SCS subinput {}".format(n,l,qin))
     qr = QuantumRegister(3, "blockii{}{}".format(n, l))
     circ = QuantumCircuit(qr)
 
@@ -154,7 +153,9 @@ def SCS(N, k=0, K=None, topology=None):
             "1" if k > l - 1 else "x",
         ]
         qin = "".join(qin)  # fixed input
-        t = N - 1 if l == K and K < N and topology != "LNN" else l  # target qubit 1 or N-1
+        t = (
+            N - 1 if l == K and K < N and topology != "LNN" else l
+        )  # target qubit 1 or N-1
         blockii_circ = blockii(N, l, qin)
         circ.compose(blockii_circ, qubits=[l - 2, l - 1, t], inplace=True)
 
@@ -233,7 +234,10 @@ def dicke_divide_conquer(N, K):
         flip, K = True, N - K
 
     ## State Prep Divide
-    x = [scipy.special.comb(N1, i) * scipy.special.comb(N2, K - i) for i in range(0, K + 1)]
+    x = [
+        scipy.special.comb(N1, i) * scipy.special.comb(N2, K - i)
+        for i in range(0, K + 1)
+    ]
     circ.ry(fracAngle(x[0], sum(x[0 : K + 1])), qr[0])
     for i in range(1, K):
         theta = fracAngle(sum(x[i + 1 : K + 1]), sum(x[i : K + 1]))

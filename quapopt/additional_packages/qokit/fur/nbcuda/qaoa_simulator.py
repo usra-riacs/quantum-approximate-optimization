@@ -3,24 +3,29 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
 from collections.abc import Sequence
-import numpy as np
+
 import numba.cuda
-import warnings
+import numpy as np
 
 from quapopt.additional_packages.qokit.fur.qaoa_simulator_base import TermsType
 
-from ..qaoa_simulator_base import QAOAFastSimulatorBase, ParamType, CostsType, TermsType
-from .qaoa_fur import apply_qaoa_furx, apply_qaoa_furxy_complete, apply_qaoa_furxy_ring
 from ..diagonal_precomputation import precompute_gpu
-from .utils import norm_squared, initialize_uniform, multiply, sum_reduce, copy
-
+from ..qaoa_simulator_base import CostsType, ParamType, QAOAFastSimulatorBase, TermsType
+from .qaoa_fur import apply_qaoa_furx, apply_qaoa_furxy_complete, apply_qaoa_furxy_ring
+from .utils import copy, initialize_uniform, multiply, norm_squared, sum_reduce
 
 DeviceArray = numba.cuda.devicearray.DeviceNDArray
 
 
 class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
-    def __init__(self, n_qubits: int, costs: CostsType | None = None, terms: TermsType | None = None) -> None:
+    def __init__(
+        self,
+        n_qubits: int,
+        costs: CostsType | None = None,
+        terms: TermsType | None = None,
+    ) -> None:
         super().__init__(n_qubits, costs, terms)
         self._sv_device = numba.cuda.device_array(self.n_states, dtype="complex")  # type: ignore
 
@@ -43,8 +48,6 @@ class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
             initialize_uniform(self._sv_device)
         else:
             numba.cuda.to_device(np.asarray(sv0, dtype="complex"), to=self._sv_device)
-
-
 
     def get_cost_diagonal(self) -> np.ndarray:
         return self._hc_diag.copy_to_host()
@@ -75,7 +78,13 @@ class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
         norm_squared(result)
         return result.copy_to_host().real
 
-    def get_expectation(self, result: DeviceArray, costs: DeviceArray | np.ndarray | None = None, optimization_type="min", **kwargs) -> float:
+    def get_expectation(
+        self,
+        result: DeviceArray,
+        costs: DeviceArray | np.ndarray | None = None,
+        optimization_type="min",
+        **kwargs,
+    ) -> float:
         if costs is None:
             costs = self._hc_diag
         else:
@@ -93,7 +102,13 @@ class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
             return sum_reduce(result).real
 
     def get_overlap(
-        self, result: DeviceArray, costs: CostsType | None = None, indices: np.ndarray | Sequence[int] | None = None, optimization_type="min",return_indices=False, **kwargs
+        self,
+        result: DeviceArray,
+        costs: CostsType | None = None,
+        indices: np.ndarray | Sequence[int] | None = None,
+        optimization_type="min",
+        return_indices=False,
+        **kwargs,
     ) -> float:
         """
         Compute the overlap between the statevector and the ground state
@@ -109,7 +124,6 @@ class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
         """
 
         import cupy as cp
-
 
         probs = self.get_probabilities(result, **kwargs)
         probs: cp.ndarray = cp.asarray(probs)
@@ -127,12 +141,11 @@ class QAOAFastSimulatorGPUBase(QAOAFastSimulatorBase):
 
             indices_sel = costs_t == val
 
-
         else:
             indices_sel = indices
 
         if return_indices:
-            return probs[indices_sel].sum(), cp.where(indices_sel==True)[0]
+            return probs[indices_sel].sum(), cp.where(indices_sel == True)[0]
         return probs[indices_sel].sum()
 
 
@@ -144,10 +157,24 @@ class QAOAFURXSimulatorGPU(QAOAFastSimulatorGPUBase):
 class QAOAFURXYRingSimulatorGPU(QAOAFastSimulatorGPUBase):
     def _apply_qaoa(self, gammas: Sequence[float], betas: Sequence[float], **kwargs):
         n_trotters = kwargs.get("n_trotters", 1)
-        apply_qaoa_furxy_ring(self._sv_device, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters)
+        apply_qaoa_furxy_ring(
+            self._sv_device,
+            gammas,
+            betas,
+            self._hc_diag,
+            self.n_qubits,
+            n_trotters=n_trotters,
+        )
 
 
 class QAOAFURXYCompleteSimulatorGPU(QAOAFastSimulatorGPUBase):
     def _apply_qaoa(self, gammas: Sequence[float], betas: Sequence[float], **kwargs):
         n_trotters = kwargs.get("n_trotters", 1)
-        apply_qaoa_furxy_complete(self._sv_device, gammas, betas, self._hc_diag, self.n_qubits, n_trotters=n_trotters)
+        apply_qaoa_furxy_complete(
+            self._sv_device,
+            gammas,
+            betas,
+            self._hc_diag,
+            self.n_qubits,
+            n_trotters=n_trotters,
+        )

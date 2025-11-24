@@ -1,9 +1,15 @@
 from __future__ import annotations
+
 import numpy as np
-from .utils import precompute_energies, reverse_array_index_bit_order
-from .portfolio_optimization import get_configuration_cost_kw, po_obj_func, portfolio_brute_force
-from quapopt.additional_packages.qokit.qaoa_circuit_portfolio import generate_dicke_state_fast, get_parameterized_qaoa_circuit
+
+from quapopt.additional_packages.qokit.qaoa_circuit_portfolio import (
+    generate_dicke_state_fast,
+    get_parameterized_qaoa_circuit,
+)
+
+from .portfolio_optimization import po_obj_func, portfolio_brute_force
 from .qaoa_objective import get_qaoa_objective
+from .utils import precompute_energies, reverse_array_index_bit_order
 
 
 def get_qaoa_portfolio_objective(
@@ -52,25 +58,35 @@ def get_qaoa_portfolio_objective(
     K = po_problem["K"]
     if precomputed_energies is None:
         po_obj = po_obj_func(po_problem)
-        precomputed_energies = reverse_array_index_bit_order(precompute_energies(po_obj, N)).real
+        precomputed_energies = reverse_array_index_bit_order(
+            precompute_energies(po_obj, N)
+        ).real
     if simulator == "qiskit":
-        parameterized_circuit = get_parameterized_qaoa_circuit(po_problem, depth=p, ini=ini, mixer=mixer, T=T)
+        parameterized_circuit = get_parameterized_qaoa_circuit(
+            po_problem, depth=p, ini=ini, mixer=mixer, T=T
+        )
     else:
         parameterized_circuit = None
 
     if ini == "dicke":
         sv0 = generate_dicke_state_fast(N, K)
     else:
-        raise ValueError(f"Unknown ini passed to get_qaoa_portfolio_objective: {ini}, allowed ['dicke']")
+        raise ValueError(
+            f"Unknown ini passed to get_qaoa_portfolio_objective: {ini}, allowed ['dicke']"
+        )
 
     if mixer == "trotter_ring":
         pass
     else:
-        raise ValueError(f"Unknown mixer passed to get_qaoa_portfolio_objective: {mixer}, allowed ['trotter_ring']")
+        raise ValueError(
+            f"Unknown mixer passed to get_qaoa_portfolio_objective: {mixer}, allowed ['trotter_ring']"
+        )
     if objective == "overlap" and precomputed_optimal_bitstrings is None:
         bf_result = portfolio_brute_force(po_problem, return_bitstring=True)
         precomputed_optimal_bitstrings = bf_result[1].reshape(1, -1)
-        assert precomputed_optimal_bitstrings.shape[1] == N  # only one optimal bitstring
+        assert (
+            precomputed_optimal_bitstrings.shape[1] == N
+        )  # only one optimal bitstring
 
     def scaled_result(f):
         """Return rescaled objective function

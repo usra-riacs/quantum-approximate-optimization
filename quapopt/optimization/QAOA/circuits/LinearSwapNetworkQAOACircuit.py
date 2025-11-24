@@ -2,41 +2,42 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 
+from typing import Dict, Optional, Tuple
 
-from typing import Optional, Tuple, Dict
-
-import numpy as np
 from pydantic import conint
 
 from quapopt import ancillary_functions as anf
-
-from quapopt.circuits.gates import _SUPPORTED_SDKs
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
-from quapopt.optimization.QAOA import AnsatzSpecifier, QubitMappingType, PhaseSeparatorType, MixerType
+from quapopt.circuits.gates import AbstractProgramGateBuilder, _SUPPORTED_SDKs
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
+    ClassicalHamiltonian,
+)
+from quapopt.optimization.QAOA import (
+    AnsatzSpecifier,
+    MixerType,
+    PhaseSeparatorType,
+    QubitMappingType,
+)
 from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit
-
-from quapopt.circuits.gates import AbstractProgramGateBuilder
-
 
 
 def get_linear_chain_permutation(swap_chain, number_of_qubits):
     """
     Convert a SWAP chain specification to a standard permutation representation.
-    
+
     This function transforms a sequence of SWAP operations into a permutation tuple
     following the standard format where π_i represents the image of element i under
     the permutation. For example, if π_0 = 1, element 0 is mapped to element 1.
-    
+
     :param swap_chain: List of SWAP pairs, e.g., [(0,1), (2,3)] for swapping (0↔1) and (2↔3)
     :type swap_chain: List[Tuple[int, int]]
     :param number_of_qubits: Total number of qubits in the system
     :type number_of_qubits: int
-    
+
     :returns: Permutation tuple (π_0, π_1, ..., π_{n-1}) representing qubit mapping
     :rtype: Tuple[int, ...]
-    
+
     :raises AssertionError: If swap_chain contains duplicate qubit indices
-    
+
     Example:
         >>> get_linear_chain_permutation([(0, 1), (2, 3)], 4)
         (1, 0, 3, 2)  # 0↔1, 2↔3, others unchanged
@@ -48,7 +49,9 @@ def get_linear_chain_permutation(swap_chain, number_of_qubits):
     # verify swap_chain contains only unique elements
     # this requires flattening
     flat_swap_chain = [qubit for pair in swap_chain for qubit in pair]
-    assert len(flat_swap_chain) == len(set(flat_swap_chain)), "Swap chain contains duplicate elements"
+    assert len(flat_swap_chain) == len(
+        set(flat_swap_chain)
+    ), "Swap chain contains duplicate elements"
 
     # We will do this by going through the SWAP chain and constructing the permutation
     # the initial permutation is just identity, we update it using linear chain specification
@@ -64,19 +67,19 @@ def get_linear_chain_permutation(swap_chain, number_of_qubits):
 def apply_permutation_to_edges(edges_list, permutation):
     """
     Apply a qubit permutation to a list of interaction edges.
-    
+
     This function transforms edge specifications according to a given permutation,
     ensuring edges remain in sorted form. Used to track how Hamiltonian interactions
     are mapped when qubits are permuted by SWAP operations.
-    
+
     :param edges_list: List of edge tuples representing qubit interactions
     :type edges_list: List[Tuple[int, int]]
     :param permutation: Permutation tuple mapping qubit indices
     :type permutation: Tuple[int, ...]
-    
+
     :returns: List of permuted edges in sorted form
     :rtype: List[Tuple[int, int]]
-    
+
     Example:
         >>> edges = [(0, 1), (1, 2)]
         >>> perm = (1, 0, 2)  # swap qubits 0 and 1
@@ -86,38 +89,42 @@ def apply_permutation_to_edges(edges_list, permutation):
     # edges_list is a list of sorted tuples, where each tuple is an edge (sorted)
     # permutation is a tuple, where each element is the image of the permutation on the corresponding element
 
-    return [tuple(sorted((permutation[edge[0]], permutation[edge[1]]))) for edge in edges_list]
+    return [
+        tuple(sorted((permutation[edge[0]], permutation[edge[1]])))
+        for edge in edges_list
+    ]
 
 
-def get_swap_network_permutation(number_of_qubits: int,
-                                 depth: int,
-                                 time_block_size: Optional[int] = None,
-                                 ):
+def get_swap_network_permutation(
+    number_of_qubits: int,
+    depth: int,
+    time_block_size: Optional[int] = None,
+):
     """
     Construct the overall permutation for a complete Linear Swap Network circuit.
-    
+
     This function computes the cumulative effect of alternating linear chains across
     all QAOA layers and time blocks. The swap network alternates between two chain
     types to enable all pairwise interactions over the circuit execution.
-    
+
     The two alternating chain patterns are:
     - Chain 1: (0,1), (2,3), (4,5), ... (even-indexed pairs)
     - Chain 2: (1,2), (3,4), (5,6), ... (odd-indexed pairs)
-    
+
     :param number_of_qubits: Total number of qubits in the circuit
     :type number_of_qubits: int
     :param depth: Number of QAOA layers (p parameter)
     :type depth: int
     :param time_block_size: Number of linear chains per layer, defaults to number_of_qubits
     :type time_block_size: int, optional
-    
+
     :returns: Overall permutation representing cumulative qubit mapping
     :rtype: Tuple[int, ...]
-    
+
     Example:
         >>> get_swap_network_permutation(4, depth=1, time_block_size=2)
         # Returns permutation for 2 alternating chains in 1 layer
-    
+
     .. note::
         The total number of chains is depth × time_block_size. Chains alternate
         between the two patterns, with Chain 1 used for odd total counts.
@@ -132,12 +139,16 @@ def get_swap_network_permutation(number_of_qubits: int,
     # there are two linear chains, so we will have to construct the permutation for each of them
     swap_chain_1 = [(i, i + 1) for i in range(0, number_of_qubits - 1, 2)]
     swap_chain_2 = [(i, i + 1) for i in range(1, number_of_qubits - 1, 2)]
-    permutation_1 = get_linear_chain_permutation(swap_chain=swap_chain_1,
-                                                 number_of_qubits=number_of_qubits)
-    permutation_2 = get_linear_chain_permutation(swap_chain=swap_chain_2,
-                                                 number_of_qubits=number_of_qubits)
+    permutation_1 = get_linear_chain_permutation(
+        swap_chain=swap_chain_1, number_of_qubits=number_of_qubits
+    )
+    permutation_2 = get_linear_chain_permutation(
+        swap_chain=swap_chain_2, number_of_qubits=number_of_qubits
+    )
 
-    all_permutations = [permutation_1, permutation_2] * int(total_number_of_linear_chains / 2)
+    all_permutations = [permutation_1, permutation_2] * int(
+        total_number_of_linear_chains / 2
+    )
     if total_number_of_linear_chains % 2 == 1:
         # if we have odd number of linear chains, we need to add one more permutation
         all_permutations.append(permutation_1)
@@ -146,9 +157,10 @@ def get_swap_network_permutation(number_of_qubits: int,
 
 
 def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_network(
-        hamiltonian_phase: ClassicalHamiltonian,
-        depth: conint(ge=0),
-        time_block_size: conint(ge=0)) -> Optional[Dict[int, ClassicalHamiltonian]]:
+    hamiltonian_phase: ClassicalHamiltonian,
+    depth: conint(ge=0),
+    time_block_size: conint(ge=0),
+) -> Optional[Dict[int, ClassicalHamiltonian]]:
     """
     Returns what Hamiltonian terms are implemented by time block ansatz with given parameters implemented via
     linear swap network.
@@ -167,8 +179,9 @@ def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_n
     if time_block_size is None:
         time_block_size = number_of_qubits
 
-    assert isinstance(time_block_size, int), (
-        f"time_block_size must be an integer, not {type(time_block_size)}: {time_block_size}")
+    assert isinstance(
+        time_block_size, int
+    ), f"time_block_size must be an integer, not {type(time_block_size)}: {time_block_size}"
 
     if time_block_size == number_of_qubits:
         return {i: hamiltonian_phase for i in range(depth)}
@@ -177,9 +190,12 @@ def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_n
     tuple_1_abstract = tuple([(i, i + 1) for i in range(1, number_of_qubits - 1, 2)])
     linear_chains_pair_abstract = [tuple_0_abstract, tuple_1_abstract]
 
-    linear_chain_permutations_abstract = [get_linear_chain_permutation(swap_chain=chain,
-                                                                       number_of_qubits=number_of_qubits)
-                                          for chain in linear_chains_pair_abstract]
+    linear_chain_permutations_abstract = [
+        get_linear_chain_permutation(
+            swap_chain=chain, number_of_qubits=number_of_qubits
+        )
+        for chain in linear_chains_pair_abstract
+    ]
     hamiltonian_phase_dict = hamiltonian_phase.get_hamiltonian_dictionary()
 
     for qi in range(number_of_qubits):
@@ -198,49 +214,65 @@ def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_n
         implemented_2q_set = set()
         implemented_1q_set = None
         if total_number_of_cycles_so_far % number_of_qubits == 0:
-            # print('yo:',current_indices_1q_abstract)
 
-            single_qubit_indices_abstract_PS = [xi for xi in current_indices_1q_abstract if
-                                                (xi,) in hamiltonian_phase_dict]
+            single_qubit_indices_abstract_PS = [
+                xi
+                for xi in current_indices_1q_abstract
+                if (xi,) in hamiltonian_phase_dict
+            ]
             if len(single_qubit_indices_abstract_PS) > 0:
                 # single_qubit_coefficients = [hamiltonian_phase_dict[(i,)] for i in
                 #                              list(range(number_of_qubits)) if (i,) in hamiltonian_phase_dict]
 
-                implemented_1q_set = {(hamiltonian_phase_dict[(i,)], (i,))
-                                      for i in single_qubit_indices_abstract_PS
-                                      if hamiltonian_phase_dict[(i,)] != 0
-                                      }
+                implemented_1q_set = {
+                    (hamiltonian_phase_dict[(i,)], (i,))
+                    for i in single_qubit_indices_abstract_PS
+                    if hamiltonian_phase_dict[(i,)] != 0
+                }
 
                 # implemented_1q_set = {(_c, (_i,))
                 #                       for _c, _i in zip(single_qubit_coefficients, list(range(number_of_qubits)))
                 #                       if _c != 0.0
-                #                       }
 
         offset_gates = layer_index * time_block_size
         for gates_cycle_index in range(time_block_size):
-            current_coefficients = [hamiltonian_phase_dict[tup] for tup in current_edges_abstract]
+            current_coefficients = [
+                hamiltonian_phase_dict[tup] for tup in current_edges_abstract
+            ]
             linear_chain_permutation_here = linear_chain_permutations_abstract[
-                (offset_gates + gates_cycle_index) % 2]
+                (offset_gates + gates_cycle_index) % 2
+            ]
 
             # current_permutation = anf.concatenate_permutations(permutations=[linear_chain_permutation_here,
             #                                                                  current_permutation,
             #                                                                  ],
             #                                                    number_of_qubits=number_of_qubits)
-            current_permutation = anf.concatenate_permutations(permutations=[current_permutation,
-                                                                             linear_chain_permutation_here,
-                                                                             ],
-                                                               number_of_qubits=number_of_qubits)
-            implemented_2q_set = implemented_2q_set.union({(_c, _pair)
-                                                           for _c, _pair in
-                                                           zip(current_coefficients, current_edges_abstract)
-                                                           if _c != 0.0
-                                                           })
+            current_permutation = anf.concatenate_permutations(
+                permutations=[
+                    current_permutation,
+                    linear_chain_permutation_here,
+                ],
+                number_of_qubits=number_of_qubits,
+            )
+            implemented_2q_set = implemented_2q_set.union(
+                {
+                    (_c, _pair)
+                    for _c, _pair in zip(current_coefficients, current_edges_abstract)
+                    if _c != 0.0
+                }
+            )
 
-            current_edges_abstract = linear_chains_pair_abstract[(offset_gates + gates_cycle_index + 1) % 2]
-            current_edges_abstract = [tuple(sorted([current_permutation[xi] for xi in tup])) for tup in
-                                      current_edges_abstract]
+            current_edges_abstract = linear_chains_pair_abstract[
+                (offset_gates + gates_cycle_index + 1) % 2
+            ]
+            current_edges_abstract = [
+                tuple(sorted([current_permutation[xi] for xi in tup]))
+                for tup in current_edges_abstract
+            ]
 
-            current_indices_1q_abstract = [current_permutation[xi] for xi in current_indices_1q_abstract]
+            current_indices_1q_abstract = [
+                current_permutation[xi] for xi in current_indices_1q_abstract
+            ]
 
         sorted_interactions = sorted(list(implemented_2q_set), key=lambda x: x[1])
 
@@ -250,8 +282,9 @@ def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_n
             batch_i += sorted_1q_terms
         batch_i += sorted_interactions
 
-        CH_batch = ClassicalHamiltonian(hamiltonian_list_representation=batch_i,
-                                        number_of_qubits=number_of_qubits)
+        CH_batch = ClassicalHamiltonian(
+            hamiltonian_list_representation=batch_i, number_of_qubits=number_of_qubits
+        )
         batches_hamiltonian[layer_index] = CH_batch
 
     return batches_hamiltonian
@@ -260,19 +293,19 @@ def get_hamiltonian_partition_equivalent_to_time_block_ansatz_with_linear_swap_n
 class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
     """
     QAOA ansatz circuit using Linear Swap Network topology for constrained qubit connectivity.
-    
+
     This class constructs parameterized QAOA circuits optimized for linear qubit topologies
     where interactions are implemented through alternating SWAP networks. The approach uses
     two alternating linear chains of SWAP gates to enable interactions between all qubit pairs
     over time, making it ideal for fully-connected optimization problems on linear hardware.
-    
+
     The Linear Swap Network realizes all pairwise interactions by alternating between:
     - Chain 1: (0,1), (2,3), (4,5), ... (even-indexed adjacent pairs)
     - Chain 2: (1,2), (3,4), (5,6), ... (odd-indexed adjacent pairs)
-    
+
     Over multiple time blocks, these alternating chains enable all qubits to interact,
     effectively simulating fully-connected topology on linearly-connected hardware.
-    
+
     :param sdk_name: Quantum SDK to use for circuit construction ('qiskit', 'pyquil', 'cirq')
     :type sdk_name: str
     :param depth: Number of QAOA layers (p parameter)
@@ -295,7 +328,7 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
     :type input_state: str, optional
     :param add_barriers: Whether to add quantum barriers between layers (Qiskit only)
     :type add_barriers: bool
-    
+
     Example:
         >>> from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
         >>> from quapopt.circuits.gates.logical import LogicalGateBuilderQiskit
@@ -310,55 +343,55 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
         ...     program_gate_builder=gate_builder,
         ...     time_block_size=4
         ... )
-    
+
     .. note::
         This approach is optimal for fully-connected graphs but inefficient for sparse graphs
         where many SWAP operations implement unused interactions.
-    
+
     .. note::
         For Linear Swap Networks, `time_block_size` specifies the number of linear chains
         per layer, distinct from FullyConnected QAOA where it represents interaction fraction.
-    
+
     .. todo::
         Add "mirror trick" optimization for depth > 1 ansatz to reduce circuit depth.
-    
+
     .. warning::
         The `every_gate_has_its_own_parameter` mode only supports Qiskit SDK with specific
         constraints: 2-local Hamiltonians, depth=1, and time_block_size=number_of_qubits.
     """
 
     def __init__(
-            self,
-            sdk_name: str,
-            depth: conint(ge=0),
-            hamiltonian_phase: ClassicalHamiltonian,
-            program_gate_builder:AbstractProgramGateBuilder,
-            time_block_size: Optional[conint(ge=0)] = None,
-            phase_separator_type=PhaseSeparatorType.QAOA,
-            mixer_type=MixerType.QAOA,
-            linear_chains_pair_device: Tuple[Tuple[int, ...], Tuple[int, ...]] = None,
-            every_gate_has_its_own_parameter: bool = False,
-            input_state:Optional[str]=None,
-            add_barriers:bool=False
-
-
+        self,
+        sdk_name: str,
+        depth: conint(ge=0),
+        hamiltonian_phase: ClassicalHamiltonian,
+        program_gate_builder: AbstractProgramGateBuilder,
+        time_block_size: Optional[conint(ge=0)] = None,
+        phase_separator_type=PhaseSeparatorType.QAOA,
+        mixer_type=MixerType.QAOA,
+        linear_chains_pair_device: Tuple[Tuple[int, ...], Tuple[int, ...]] = None,
+        every_gate_has_its_own_parameter: bool = False,
+        input_state: Optional[str] = None,
+        add_barriers: bool = False,
     ):
 
-        assert sdk_name.lower() in _SUPPORTED_SDKs, (f"Unsupported SDK: {sdk_name}. "
-                                                     f"Please choose one of the following: {_SUPPORTED_SDKs}")
+        assert sdk_name.lower() in _SUPPORTED_SDKs, (
+            f"Unsupported SDK: {sdk_name}. "
+            f"Please choose one of the following: {_SUPPORTED_SDKs}"
+        )
 
         if input_state is None:
-            input_state = '|+>'
+            input_state = "|+>"
 
         ansatz_specifier = AnsatzSpecifier(
-                                    PhaseHamiltonianClass=hamiltonian_phase.hamiltonian_class_specifier,
-                                    PhaseHamiltonianInstance=hamiltonian_phase.hamiltonian_instance_specifier,
-                                    Depth=depth,
-                                    PhaseSeparatorType=phase_separator_type,
-                                    MixerType=mixer_type,
-                                    QubitMappingType=QubitMappingType.linear_swap_network,
-                                    TimeBlockSize=time_block_size
-                                    )
+            PhaseHamiltonianClass=hamiltonian_phase.hamiltonian_class_specifier,
+            PhaseHamiltonianInstance=hamiltonian_phase.hamiltonian_instance_specifier,
+            Depth=depth,
+            PhaseSeparatorType=phase_separator_type,
+            MixerType=mixer_type,
+            QubitMappingType=QubitMappingType.linear_swap_network,
+            TimeBlockSize=time_block_size,
+        )
 
         # We will need two types of indices. One is abstract qubit indexing so from 0 to n-1 for construction of SWAP network
         # The other is device qubit indexing, which is the actual qubit indices on the device. We need to map between them
@@ -367,19 +400,32 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
         if time_block_size is None:
             time_block_size = number_of_qubits
 
-        assert int(time_block_size)==time_block_size, "Time block size must be an integer"
+        assert (
+            int(time_block_size) == time_block_size
+        ), "Time block size must be an integer"
         time_block_size = int(time_block_size)
 
         if every_gate_has_its_own_parameter:
-            assert sdk_name.lower() in ['qiskit'], "Only Qiskit supports every gate has its own parameter"
-            assert time_block_size==number_of_qubits, "Every gate has its own parameter only works for time_block_size = number_of_qubits"
-            assert set(hamiltonian_phase.localities) == {2}, "Every gate has its own parameter only works for 2-local Hamiltonians"
-            assert depth == 1, "Every gate has its own parameter only works for depth = 1"
-
+            assert sdk_name.lower() in [
+                "qiskit"
+            ], "Only Qiskit supports every gate has its own parameter"
+            assert (
+                time_block_size == number_of_qubits
+            ), "Every gate has its own parameter only works for time_block_size = number_of_qubits"
+            assert set(hamiltonian_phase.localities) == {
+                2
+            }, "Every gate has its own parameter only works for 2-local Hamiltonians"
+            assert (
+                depth == 1
+            ), "Every gate has its own parameter only works for depth = 1"
 
             # if number_of_qubits%2==0:
-        tuple_0_abstract = tuple([(i, i + 1) for i in range(0, number_of_qubits - 1, 2)])
-        tuple_1_abstract = tuple([(i, i + 1) for i in range(1, number_of_qubits - 1, 2)])
+        tuple_0_abstract = tuple(
+            [(i, i + 1) for i in range(0, number_of_qubits - 1, 2)]
+        )
+        tuple_1_abstract = tuple(
+            [(i, i + 1) for i in range(1, number_of_qubits - 1, 2)]
+        )
         linear_chains_pair_abstract = [tuple_0_abstract, tuple_1_abstract]
 
         if linear_chains_pair_device is None:
@@ -390,7 +436,7 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
         tuple_0_device, tuple_1_device = linear_chains_pair_device
 
         # we flatten tuple_0_device
-        qubit_ids_abstract = tuple(range(number_of_qubits))
+        tuple(range(number_of_qubits))
         # first linear chain should contain all of the qubits of the device in case that number_of_qubits is even
         qubit_ids_device = [qubit for pair in tuple_0_device for qubit in pair]
         # If it's odd, then we need to add the last qubit
@@ -398,55 +444,90 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
             qubit_ids_device += [tuple_1_device[-1][1]]
         qubit_ids_device = tuple(qubit_ids_device)
 
-        # print(qubit_ids_abstract)
-        # print(qubit_ids_device)
-        # map_qubits_to_device = {qubit_ids_abstract[i]: qubit_ids_device[i] for i in range(number_of_qubits)}
         map_logical_qubits_to_physical_qubits = tuple(qubit_ids_device)
 
         param_name_phase = "AngPS"
         param_name_mixer = "AngMIX"
 
-        if sdk_name.lower() in ['qiskit']:
+        if sdk_name.lower() in ["qiskit"]:
             from qiskit import QuantumCircuit
             from qiskit.circuit import ParameterVector
 
             number_of_qubits_physical = max(qubit_ids_device) + 1
 
-            quantum_circuit = QuantumCircuit(number_of_qubits_physical, number_of_qubits)
-
+            quantum_circuit = QuantumCircuit(
+                number_of_qubits_physical, number_of_qubits
+            )
 
             if not every_gate_has_its_own_parameter:
-                angle_phase = ParameterVector(name=param_name_phase, length=depth) if depth > 0 else None
-                angle_mixer = ParameterVector(name=param_name_mixer, length=depth) if depth > 0 else None
+                angle_phase = (
+                    ParameterVector(name=param_name_phase, length=depth)
+                    if depth > 0
+                    else None
+                )
+                angle_mixer = (
+                    ParameterVector(name=param_name_mixer, length=depth)
+                    if depth > 0
+                    else None
+                )
             else:
-                #in that case, number of gates per layer is number of interactions in the Hamiltonian
-                number_of_phase_gates_per_layer = int(number_of_qubits*(number_of_qubits-1)/2)
+                # in that case, number of gates per layer is number of interactions in the Hamiltonian
+                number_of_phase_gates_per_layer = int(
+                    number_of_qubits * (number_of_qubits - 1) / 2
+                )
                 number_of_mixer_gates_per_layer = number_of_qubits
-                #number_of_gates = depth*number_of_gates_per_layer
-                angle_phase = ParameterVector(name=param_name_phase, length=number_of_phase_gates_per_layer*depth) if depth > 0 else None
-                angle_mixer = ParameterVector(name=param_name_mixer, length=int(depth*number_of_mixer_gates_per_layer)) if depth > 0 else None
+                angle_phase = (
+                    ParameterVector(
+                        name=param_name_phase,
+                        length=number_of_phase_gates_per_layer * depth,
+                    )
+                    if depth > 0
+                    else None
+                )
+                angle_mixer = (
+                    ParameterVector(
+                        name=param_name_mixer,
+                        length=int(depth * number_of_mixer_gates_per_layer),
+                    )
+                    if depth > 0
+                    else None
+                )
 
-
-
-
-
-        elif sdk_name.lower() in ['pyquil']:
+        elif sdk_name.lower() in ["pyquil"]:
             from pyquil import Program
+
             quantum_circuit = Program()
-            angle_phase = quantum_circuit.declare(param_name_phase, "REAL", depth) if depth > 0 else None
-            angle_mixer = quantum_circuit.declare(param_name_mixer, "REAL", depth) if depth > 0 else None
+            angle_phase = (
+                quantum_circuit.declare(param_name_phase, "REAL", depth)
+                if depth > 0
+                else None
+            )
+            angle_mixer = (
+                quantum_circuit.declare(param_name_mixer, "REAL", depth)
+                if depth > 0
+                else None
+            )
 
-        elif sdk_name.lower() in ['cirq']:
+        elif sdk_name.lower() in ["cirq"]:
 
-            from cirq import Circuit
             import sympy
+            from cirq import Circuit
+
             quantum_circuit = Circuit()
-            angle_phase = [sympy.Symbol(name=f"{param_name_phase}-{i}") for i in range(depth)]
-            angle_mixer = [sympy.Symbol(name=f"{param_name_mixer}-{i}") for i in range(depth)]
+            angle_phase = [
+                sympy.Symbol(name=f"{param_name_phase}-{i}") for i in range(depth)
+            ]
+            angle_mixer = [
+                sympy.Symbol(name=f"{param_name_mixer}-{i}") for i in range(depth)
+            ]
 
         else:
-            raise AssertionError((f"Unsupported SDK: {sdk_name}. "
-                                  f"Please choose one of the following: {_SUPPORTED_SDKs}"))
+            raise AssertionError(
+                (
+                    f"Unsupported SDK: {sdk_name}. "
+                    f"Please choose one of the following: {_SUPPORTED_SDKs}"
+                )
+            )
 
         hamiltonian_phase_dict = hamiltonian_phase.get_hamiltonian_dictionary()
 
@@ -458,22 +539,26 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
 
         # TODO(FBM): add support for general input states
         # We start from |+>^n
-        #print(program_gate_builder)
-        if input_state == '|+>':
-            quantum_circuit = program_gate_builder.H(quantum_circuit=quantum_circuit,
-                                                     qubits_tuple=qubit_ids_device)
-        elif input_state == '|0>':
+        if input_state == "|+>":
+            quantum_circuit = program_gate_builder.H(
+                quantum_circuit=quantum_circuit, qubits_tuple=qubit_ids_device
+            )
+        elif input_state == "|0>":
             pass
         else:
-            raise ValueError(f"Unsupported input state: {input_state}. Supported states are: |+>, |0>")
+            raise ValueError(
+                f"Unsupported input state: {input_state}. Supported states are: |+>, |0>"
+            )
 
         # We need to create an object that stores what coefficients we need to implement
         current_edges_abstract = linear_chains_pair_abstract[0]
-        # print(current_edges_abstract)
 
-        linear_chain_permutations_abstract = [get_linear_chain_permutation(swap_chain=chain,
-                                                                           number_of_qubits=number_of_qubits)
-                                              for chain in linear_chains_pair_abstract]
+        linear_chain_permutations_abstract = [
+            get_linear_chain_permutation(
+                swap_chain=chain, number_of_qubits=number_of_qubits
+            )
+            for chain in linear_chains_pair_abstract
+        ]
         current_indices_abstract = list(range(number_of_qubits))
         current_permutation = list(range(number_of_qubits))
 
@@ -482,28 +567,46 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
                 beta = angle_mixer[layer_index] if layer_index < depth else 0.0
                 gamma = angle_phase[layer_index] if layer_index < depth else 0.0
             else:
-                #in that case, number of gates per layer is number of interactions in the Hamiltonian
-                gamma = angle_phase[layer_index*number_of_phase_gates_per_layer:(layer_index+1)*number_of_phase_gates_per_layer]
-                beta = angle_mixer[layer_index*number_of_mixer_gates_per_layer:(layer_index+1)*number_of_mixer_gates_per_layer]
+                # in that case, number of gates per layer is number of interactions in the Hamiltonian
+                gamma = angle_phase[
+                    layer_index
+                    * number_of_phase_gates_per_layer : (layer_index + 1)
+                    * number_of_phase_gates_per_layer
+                ]
+                beta = angle_mixer[
+                    layer_index
+                    * number_of_mixer_gates_per_layer : (layer_index + 1)
+                    * number_of_mixer_gates_per_layer
+                ]
 
             total_number_of_cycles_so_far = layer_index * time_block_size
 
             if total_number_of_cycles_so_far % number_of_qubits == 0:
-                single_qubit_indices_abstract_PS = [xi for xi in current_indices_abstract if
-                                                    (xi,) in hamiltonian_phase_dict]
+                single_qubit_indices_abstract_PS = [
+                    xi
+                    for xi in current_indices_abstract
+                    if (xi,) in hamiltonian_phase_dict
+                ]
 
                 # (1) phase for all one-qubit interactions
                 if len(single_qubit_indices_abstract_PS) > 0:
-                    single_qubit_coefficients = [hamiltonian_phase_dict[(i,)] for i in
-                                                 single_qubit_indices_abstract_PS]
-                    single_qubit_indices_PS_device = [qubit_ids_device[i] for i in single_qubit_indices_abstract_PS]
+                    single_qubit_coefficients = [
+                        hamiltonian_phase_dict[(i,)]
+                        for i in single_qubit_indices_abstract_PS
+                    ]
+                    single_qubit_indices_PS_device = [
+                        qubit_ids_device[i] for i in single_qubit_indices_abstract_PS
+                    ]
 
                     # In given layer, we add the phase separator for single qubit interactions at the end of the layer
                     # TODO(FBM): in theory it doesn't matter if it's at the beginning or the end, in practice it might.
-                    quantum_circuit = program_gate_builder.exp_Z(quantum_circuit=quantum_circuit,
-                                                                 angles_tuple=tuple([coeff * gamma for coeff in
-                                                                                     single_qubit_coefficients]),
-                                                                 qubits_tuple=single_qubit_indices_PS_device)
+                    quantum_circuit = program_gate_builder.exp_Z(
+                        quantum_circuit=quantum_circuit,
+                        angles_tuple=tuple(
+                            [coeff * gamma for coeff in single_qubit_coefficients]
+                        ),
+                        qubits_tuple=single_qubit_indices_PS_device,
+                    )
 
             # we are gonna write the code for SWAP network implementation of QAOA
             # what we want is we want to go through interactions one by one and implement them together with SWAPs
@@ -517,66 +620,86 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
                 counter_gates = 0
             for gates_cycle_index in range(time_block_size):
                 # We take the coefficients from currently implemented part of the Hamiltonian
-                current_coefficients = [hamiltonian_phase_dict[tup] for tup in current_edges_abstract]
+                current_coefficients = [
+                    hamiltonian_phase_dict[tup] for tup in current_edges_abstract
+                ]
                 # e.g., this implementz Z0Z1 and Z2Z3 for the first cycle
                 # edges on the device are fixed: it is always either first or second linear chain
-                current_edges_device = linear_chains_pair_device[(offset_gates + gates_cycle_index) % 2]
+                current_edges_device = linear_chains_pair_device[
+                    (offset_gates + gates_cycle_index) % 2
+                ]
 
                 if len(current_edges_device) != len(current_coefficients):
                     raise ValueError(
-                        f"Number of edges and coefficients don't match: {len(current_edges_device)} vs {len(current_coefficients)}")
+                        f"Number of edges and coefficients don't match: {len(current_edges_device)} vs {len(current_coefficients)}"
+                    )
 
-                for coeff, edge_device in zip(current_coefficients, current_edges_device):
+                for coeff, edge_device in zip(
+                    current_coefficients, current_edges_device
+                ):
                     # We implement the Phase Separator gate with the coefficient and SWAP gate
                     # We combine it PS+SWAP as single method, because sometimes there are efficient ways to compile them
                     # both together
 
                     if phase_separator_type in [PhaseSeparatorType.QAOA]:
                         if coeff == 0.0:
-                            quantum_circuit = program_gate_builder.SWAP(quantum_circuit=quantum_circuit,
-                                                                        qubits_pairs_tuple=[edge_device])
+                            quantum_circuit = program_gate_builder.SWAP(
+                                quantum_circuit=quantum_circuit,
+                                qubits_pairs_tuple=[edge_device],
+                            )
                         else:
                             if not every_gate_has_its_own_parameter:
-                                quantum_circuit = program_gate_builder.exp_ZZ_SWAP(quantum_circuit=quantum_circuit,
-                                                                                   angles_tuple=(gamma * coeff,),
-                                                                                   qubits_pairs_tuple=[edge_device]
-                                                                                   )
+                                quantum_circuit = program_gate_builder.exp_ZZ_SWAP(
+                                    quantum_circuit=quantum_circuit,
+                                    angles_tuple=(gamma * coeff,),
+                                    qubits_pairs_tuple=[edge_device],
+                                )
                             else:
-                                quantum_circuit = program_gate_builder.exp_ZZ_SWAP(quantum_circuit=quantum_circuit,
-                                                                                   angles_tuple=(gamma[counter_gates] * coeff,),
-                                                                                   qubits_pairs_tuple=[edge_device]
-                                                                                   )
+                                quantum_circuit = program_gate_builder.exp_ZZ_SWAP(
+                                    quantum_circuit=quantum_circuit,
+                                    angles_tuple=(gamma[counter_gates] * coeff,),
+                                    qubits_pairs_tuple=[edge_device],
+                                )
                     elif phase_separator_type in [PhaseSeparatorType.QAMPA]:
                         if not every_gate_has_its_own_parameter:
-                            quantum_circuit = program_gate_builder.exp_ZZXXYY_SWAP(quantum_circuit=quantum_circuit,
-                                                                               angles_tuple=((gamma * coeff, beta)),
-                                                                               qubits_pairs_tuple=(edge_device,)
-                                                                               )
+                            quantum_circuit = program_gate_builder.exp_ZZXXYY_SWAP(
+                                quantum_circuit=quantum_circuit,
+                                angles_tuple=((gamma * coeff, beta)),
+                                qubits_pairs_tuple=(edge_device,),
+                            )
                         else:
-                            quantum_circuit = program_gate_builder.exp_ZZXXYY_SWAP(quantum_circuit=quantum_circuit,
-                                                                                   angles_tuple=((gamma[counter_gates] * coeff, beta)),
-                                                                                   qubits_pairs_tuple=(edge_device,)
-                                                                                   )
-
-
+                            quantum_circuit = program_gate_builder.exp_ZZXXYY_SWAP(
+                                quantum_circuit=quantum_circuit,
+                                angles_tuple=((gamma[counter_gates] * coeff, beta)),
+                                qubits_pairs_tuple=(edge_device,),
+                            )
 
                     else:
-                        raise ValueError(f"Unsupported Phase Separator Type: {phase_separator_type}")
+                        raise ValueError(
+                            f"Unsupported Phase Separator Type: {phase_separator_type}"
+                        )
 
                     if every_gate_has_its_own_parameter:
                         counter_gates += 1
                 # Here we go through each gates cycle in the current layer
                 linear_chain_permutation_here = linear_chain_permutations_abstract[
-                    (offset_gates + gates_cycle_index) % 2]
+                    (offset_gates + gates_cycle_index) % 2
+                ]
 
-                current_permutation = anf.concatenate_permutations(permutations=[linear_chain_permutation_here,
-                                                                                 current_permutation,
-                                                                                 ])
-                # print('permutation:', current_permutation)
+                current_permutation = anf.concatenate_permutations(
+                    permutations=[
+                        linear_chain_permutation_here,
+                        current_permutation,
+                    ]
+                )
                 # +1 because we plan for next cycle
-                current_edges_abstract = linear_chains_pair_abstract[(offset_gates + gates_cycle_index + 1) % 2]
-                current_edges_abstract = [tuple(sorted([current_permutation[xi] for xi in tup])) for tup in
-                                          current_edges_abstract]
+                current_edges_abstract = linear_chains_pair_abstract[
+                    (offset_gates + gates_cycle_index + 1) % 2
+                ]
+                current_edges_abstract = [
+                    tuple(sorted([current_permutation[xi] for xi in tup]))
+                    for tup in current_edges_abstract
+                ]
 
                 current_indices_abstract = current_permutation
 
@@ -585,28 +708,32 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
                 # In given layer, we add the phase separator for single qubit interactions at the end of the layer
                 # TODO(FBM): in theory it doesn't matter if it's at the beginning or the end, in practice it might.
                 if not every_gate_has_its_own_parameter:
-                    quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
-                                                                 angles_tuple=beta,
-                                                                 qubits_tuple=qubit_ids_device)
+                    quantum_circuit = program_gate_builder.exp_X(
+                        quantum_circuit=quantum_circuit,
+                        angles_tuple=beta,
+                        qubits_tuple=qubit_ids_device,
+                    )
                 else:
-                    quantum_circuit = program_gate_builder.exp_X(quantum_circuit=quantum_circuit,
-                                                                 angles_tuple=tuple([b for b in beta]),
-                                                                 qubits_tuple=qubit_ids_device)
+                    quantum_circuit = program_gate_builder.exp_X(
+                        quantum_circuit=quantum_circuit,
+                        angles_tuple=tuple([b for b in beta]),
+                        qubits_tuple=qubit_ids_device,
+                    )
             elif mixer_type in [MixerType.QAMPA]:
                 pass
             else:
                 raise ValueError(f"Unsupported Mixer Type: {mixer_type}")
 
-
             if add_barriers:
-                if sdk_name!='qiskit':
+                if sdk_name != "qiskit":
                     raise ValueError("Barriers are only supported for Qiskit SDK")
                 quantum_circuit.barrier(qubit_ids_device)
 
-        #print(number_of_qubits, depth,time_block_size)
-        swap_network_permutation = get_swap_network_permutation(number_of_qubits=number_of_qubits,
-                                                                depth=depth,
-                                                                time_block_size=time_block_size)
+        swap_network_permutation = get_swap_network_permutation(
+            number_of_qubits=number_of_qubits,
+            depth=depth,
+            time_block_size=time_block_size,
+        )
         # Now we want hamiltonian for which we don't have to do anything with the bitstrings when calculating energies
         # We apply swap network permutation to the hamiltonian on the level of abstract indices.
 
@@ -615,8 +742,7 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
             logical_to_physical_qubits_map=map_logical_qubits_to_physical_qubits,
             parameters=[angle_phase, angle_mixer],
             qubit_mapping_permutation=swap_network_permutation,
-            ansatz_specifier=ansatz_specifier
-
+            ansatz_specifier=ansatz_specifier,
         )
 
         self._depth = depth
@@ -649,10 +775,3 @@ class LinearSwapNetworkQAOACircuit(MappedAnsatzCircuit):
     @property
     def gate_builder(self):
         return self._gate_builder
-
-
-
-
-
-
-

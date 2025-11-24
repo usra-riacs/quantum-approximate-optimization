@@ -7,7 +7,7 @@ description = "Various tools for running quantum approximate optimization experi
 #license = "ADD"
 #license-file = "LICENSE.MD"
 readme = "README.md"
-repository = "https://github.com/fbm2718-usra/quantum-approximate-optimization/"
+repository = "https://github.com/usra-riacs/quantum-approximate-optimization/"
 
 version = "0.2.1"
 
@@ -21,12 +21,6 @@ cython = ">=3.1.2,<4"
 setuptools = ">=80.9.0,<81"
 numpy = ">=2.2.6,<3"
 
-[feature.debug.pypi-dependencies]
-mqlib = {editable = true, git = "https://github.com/fbm2718-usra/pymqlib-quapopt.git" }
-
-[feature.debug.tasks]
-# A task to compile the cpp code
-build_cpp = "python setup.py build_ext --inplace"
 
 
 [feature.quapopt.build-dependencies]
@@ -80,7 +74,7 @@ mqlib = {editable = true, git = "https://github.com/fbm2718-usra/pymqlib-quapopt
 [feature.quapopt.tasks]
 # A task to compile the cpp code
 build_cpp = "python setup.py build_ext --inplace"
-set_results_directory = "python scripts/set_results_directory.py"
+set_results_directory = "python config_scripts/set_results_directory.py"
 
 [feature.mlvl.dependencies]
 #This is needed for Mlvl submodules
@@ -111,7 +105,7 @@ pytorch-gpu = ">=2.7.1,<3"
 pytorch = ">=2.7.1,<3"
 
 [feature.gpu_support.tasks]
-check_cuda = "python scripts/check_cuda.py"
+check_cuda = "python config_scripts/check_cuda.py"
 
 
 
@@ -161,9 +155,6 @@ quapopt-gpu = {features = ['quapopt', 'gpu_support', 'qiskit_aer_gpu'], solve-gr
 #full versions that include some additional packages useful for working with advanced quantum optimization
 quapopt-full = {features = ['quapopt', "machine_learning_cpu", 'qiskit_aer', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization'], solve-group="quapopt",no-default-feature = true}
 quapopt-gpu-full = {features = ['quapopt', 'gpu_support', 'machine_learning', 'qiskit_aer_gpu', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization'], solve-group="quapopt-gpu",no-default-feature = true}
-
-#this is my local version of quapopt that might use some locally-built packages
-quapopt-gpu-full-fbm = {features = ['quapopt', 'gpu_support', 'machine_learning', 'qiskit_aer_gpu_local', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization'], solve-group="quapopt-gpu-fbm",no-default-feature = true}
 
 #Environments for debugging
 debug = {features=['debug'], solve-group="debug",no-default-feature = true}

@@ -6,11 +6,12 @@
 
 from quapopt.data_analysis.data_handling.schemas.naming import *
 from quapopt.data_analysis.data_handling.schemas.parsing import *
+from quapopt.data_analysis.data_handling.schemas.configurations import *
+from quapopt.data_analysis.data_handling.schemas.specifiers import *
 
-from quapopt.data_analysis.data_handling.io_utilities import *
 from quapopt.data_analysis.data_handling.io_utilities.results_logging import *
 from quapopt.data_analysis.data_handling.io_utilities.standardized_io import *
-from quapopt.data_analysis.data_handling.schemas import *
+from quapopt.data_analysis.data_handling.io_utilities.metadata_management import *
 
 
 

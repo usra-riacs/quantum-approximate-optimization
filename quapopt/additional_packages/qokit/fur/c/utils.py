@@ -3,7 +3,9 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numba
 import numpy as np
 

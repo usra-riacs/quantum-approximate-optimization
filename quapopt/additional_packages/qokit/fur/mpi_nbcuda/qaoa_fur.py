@@ -3,13 +3,22 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from collections.abc import Sequence
+
 import numpy as np
 
 from ..nbcuda.diagonal import apply_diagonal
 from .fur import furx_all  # , furxy_ring, furxy_complete
 
 
-def apply_qaoa_furx(sv: np.ndarray, gammas: Sequence[float], betas: Sequence[float], hc_diag: np.ndarray, n_local_qubits: int, n_all_qubits: int, comm) -> None:
+def apply_qaoa_furx(
+    sv: np.ndarray,
+    gammas: Sequence[float],
+    betas: Sequence[float],
+    hc_diag: np.ndarray,
+    n_local_qubits: int,
+    n_all_qubits: int,
+    comm,
+) -> None:
     """
     apply a QAOA with the X mixer defined by
     U(beta) = sum_{j} exp(-i*beta*X_j/2)

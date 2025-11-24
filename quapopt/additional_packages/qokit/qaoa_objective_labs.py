@@ -3,21 +3,21 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
-from collections.abc import Sequence
+
 import typing
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+
 from .labs import (
+    energy_vals_from_bitstring,
     get_energy_term_indices,
     negative_merit_factor_from_bitstring,
     true_optimal_energy,
-    energy_vals_from_bitstring,
 )
-
-from .utils import precompute_energies
 from .qaoa_circuit_labs import get_parameterized_qaoa_circuit
 from .qaoa_objective import get_qaoa_objective
+from .utils import precompute_energies
 
 qaoa_objective_labs_folder = Path(__file__).parent
 
@@ -66,7 +66,9 @@ Precomputed energies should be loaded from disk instead. Run assets/load_assets_
             ens = np.load(fpath)
         else:
             # precompute
-            bit_strings = (((np.array(range(2**N))[:, None] & (1 << np.arange(N)))) > 0).astype(int)
+            bit_strings = (
+                ((np.array(range(2**N))[:, None] & (1 << np.arange(N)))) > 0
+            ).astype(int)
             optimal_bitstrings = []
             for x in bit_strings:
                 energy = energy_vals_from_bitstring(x, N=N)
@@ -195,7 +197,9 @@ def get_qaoa_labs_objective(
         precomputed_diagonal_hamiltonian = None
     else:
         parameterized_circuit = None
-        precomputed_diagonal_hamiltonian = -(N**2) / (2 * precomputed_negative_merit_factors) - offset
+        precomputed_diagonal_hamiltonian = (
+            -(N**2) / (2 * precomputed_negative_merit_factors) - offset
+        )
 
     return get_qaoa_objective(
         N=N,

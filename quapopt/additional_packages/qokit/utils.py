@@ -2,28 +2,28 @@
 # // SPDX-License-Identifier: Apache-2.0
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
+from itertools import product
+from multiprocessing import Pool
+
 import numpy as np
 import pandas as pd
 import qiskit
-from itertools import product
-from multiprocessing import Pool
-from qiskit import QuantumCircuit
+from importlib_resources import files
 from pytket import OpType
 from pytket.circuit import Circuit
-from pytket.extensions.quantinuum import QuantinuumBackend
 from pytket.extensions.qiskit import qiskit_to_tk
-from importlib_resources import files
-
+from pytket.extensions.quantinuum import QuantinuumBackend
 from pytket.passes import (
-    SequencePass,
-    auto_squash_pass,
-    RemoveRedundancies,
-    SimplifyInitial,
+    CommuteThroughMultis,
+    DecomposeTK2,
     FullPeepholeOptimise,
     NormaliseTK2,
-    DecomposeTK2,
-    CommuteThroughMultis,
+    RemoveRedundancies,
+    SequencePass,
+    SimplifyInitial,
+    auto_squash_pass,
 )
+from qiskit import QuantumCircuit
 
 
 def get_all_best_known():
@@ -51,7 +51,9 @@ def get_all_best_known():
     return df1.merge(df2, left_index=True, right_index=True, how="outer").reset_index()
 
 
-def brute_force(obj_f, num_variables: int, minimize: bool = False, function_takes: str = "spins"):
+def brute_force(
+    obj_f, num_variables: int, minimize: bool = False, function_takes: str = "spins"
+):
     """Get the maximum of a function by complete enumeration
     Returns the maximum value and the extremizing bit string
     """
@@ -61,7 +63,10 @@ def brute_force(obj_f, num_variables: int, minimize: bool = False, function_take
     else:
         best_cost_brute = float("-inf")
         compare = lambda x, y: x > y
-    bit_strings = (((np.array(range(2**num_variables))[:, None] & (1 << np.arange(num_variables)))) > 0).astype(int)
+    bit_strings = (
+        ((np.array(range(2**num_variables))[:, None] & (1 << np.arange(num_variables))))
+        > 0
+    ).astype(int)
     for x in bit_strings:
         if function_takes == "spins":
             cost = obj_f(1 - 2 * np.array(x))
@@ -137,7 +142,9 @@ def precompute_energies(obj_f, nbits: int, *args: object, **kwargs: object):
         where amplitudes are absolute values squared of qiskit statevector
 
     """
-    bit_strings = (((np.array(range(2**nbits))[:, None] & (1 << np.arange(nbits)))) > 0).astype(int)
+    bit_strings = (
+        ((np.array(range(2**nbits))[:, None] & (1 << np.arange(nbits)))) > 0
+    ).astype(int)
 
     return np.array([obj_f(x, *args, **kwargs) for x in bit_strings])
 
@@ -152,7 +159,9 @@ def yield_all_bitstrings(nbits: int):
         yield np.array(x[::-1])
 
 
-def precompute_energies_parallel(obj_f, nbits: int, num_processes: int, postfix: list = []):
+def precompute_energies_parallel(
+    obj_f, nbits: int, num_processes: int, postfix: list = []
+):
     """
     Precomputed a vector of objective function values
     that accelerates the energy computation in obj_from_statevector
@@ -179,7 +188,9 @@ def precompute_energies_parallel(obj_f, nbits: int, num_processes: int, postfix:
         where amplitudes are absolute values squared of qiskit statevector
 
     """
-    bit_strings = (np.hstack([x, postfix]) for x in yield_all_bitstrings(nbits - len(postfix)))
+    bit_strings = (
+        np.hstack([x, postfix]) for x in yield_all_bitstrings(nbits - len(postfix))
+    )
 
     with Pool(num_processes) as pool:
         ens = np.array(pool.map(obj_f, bit_strings))
@@ -197,9 +208,13 @@ def obj_from_statevector(sv, obj_f, precomputed_energies=None):
         qubit_dims = int(qubit_dims)
         # get bit strings for each element of the state vector
         # https://stackoverflow.com/questions/22227595/convert-integer-to-binary-array-with-suitable-padding
-        bit_strings = (((np.array(range(sv.shape[0]))[:, None] & (1 << np.arange(qubit_dims)))) > 0).astype(int)
+        bit_strings = (
+            ((np.array(range(sv.shape[0]))[:, None] & (1 << np.arange(qubit_dims)))) > 0
+        ).astype(int)
 
-        return sum(obj_f(bit_strings[kk]) * (np.abs(sv[kk]) ** 2) for kk in range(sv.shape[0]))
+        return sum(
+            obj_f(bit_strings[kk]) * (np.abs(sv[kk]) ** 2) for kk in range(sv.shape[0])
+        )
     else:
         probabilities = np.abs(sv) ** 2
         return precomputed_energies.dot(probabilities)
@@ -218,7 +233,9 @@ def get_ramp(delta, p: int):
     return {"beta": beta, "gamma": gamma}
 
 
-def transpile_hseries(quantinuum_backend: QuantinuumBackend, circuit: Circuit, num_passes_repeats: int = 2):
+def transpile_hseries(
+    quantinuum_backend: QuantinuumBackend, circuit: Circuit, num_passes_repeats: int = 2
+):
     """
     Transpile circuit to quantinuum backend_computation
     circuit is qiskit.QuantumCircuit or pytket.circuit.Circuit

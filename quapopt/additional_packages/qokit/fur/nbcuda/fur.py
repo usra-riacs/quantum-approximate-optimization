@@ -3,10 +3,13 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 import math
+
 import numba.cuda
 import numpy as np
 
-from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import _GLOBAL_GRID_SIZE
+from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import (
+    _GLOBAL_GRID_SIZE,
+)
 
 
 ########################################
@@ -33,7 +36,9 @@ def furx(x: np.ndarray, theta: float, q: int):
     n_states = len(x)
     mask1 = (1 << q) - 1
     mask2 = mask1 ^ ((n_states - 1) >> 1)
-    furx_kernel.forall(n_states)(x, math.cos(theta), -1j * math.sin(theta), q, mask1, mask2)
+    furx_kernel.forall(n_states)(
+        x, math.cos(theta), -1j * math.sin(theta), q, mask1, mask2
+    )
 
 
 def furx_all(x: np.ndarray, theta: float, n_qubits: int):
@@ -79,7 +84,9 @@ def furxy(x: np.ndarray, theta: float, q1: int, q2: int):
     maskm = mask1 ^ mask2
     mask2 ^= (n_states - 1) >> 2
 
-    furxy_kernel.forall(n_states)(x, math.cos(theta), -1j * math.sin(theta), q1, q2, mask1, mask2, maskm)
+    furxy_kernel.forall(n_states)(
+        x, math.cos(theta), -1j * math.sin(theta), q1, q2, mask1, mask2, maskm
+    )
 
 
 def furxy_ring(x: np.ndarray, theta: float, n_qubits: int):

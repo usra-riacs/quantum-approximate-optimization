@@ -7,6 +7,10 @@ Set of tools to implement quantum optimization for classical problems (diagonal 
 ### Operating system
 This project has been tested mainly on Ubuntu, with limited tests on Windows and MacOS.
 
+Note: on MacOS, you might need to comment out all pixi's "features" that have "gpu" in the name. 
+This is because pixi attempts to solve the environments for all systems at the same time, and MacOS does not support CUDA.
+
+
 ### Clone repository
 
 Run the following command wherever you want the repository to be stored
@@ -142,6 +146,17 @@ or
 pip install -e ./[full_gpu]
 ```
 
+
+## Tutorials
+
+Please refer to the [tutorials](notebooks/tutorials) folder for examples of how to use the repository.
+
+The basics are showcased in the [quick start](notebooks/tutorials/00_quick_start):
+1. [Hamiltonian generation](notebooks/tutorials/00_quick_start/A_generating_hamiltonians) How to generate and save Hamiltonian instances for further use.
+2. [Running basic QAOA](notebooks/tutorials/00_quick_start/B_running_qaoa_circuits) How to run basic QAOA optimization using different backends.
+3. [Running QAOA with gauge transformations](notebooks/tutorials/00_quick_start/C_gauge_symmetries_and_NDAR/) How to run QAOA with gauge transformations and Noise-Directed Adaptive Remapping (NDAR).
+
+We plan to add more tutorials in the future.
 
 
 ## Citing this repo

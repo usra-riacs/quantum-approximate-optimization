@@ -3,20 +3,29 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
+import math
 import typing
 from collections.abc import Sequence
-import numpy as np
-import math
+
 import numba.cuda
+import numpy as np
 
 from quapopt.additional_packages.qokit.fur.nbcuda.qaoa_simulator import DeviceArray
-from ..lazy_import import MPI
 
-from ..nbcuda.qaoa_simulator import QAOAFastSimulatorGPUBase, CostsType, TermsType, ParamType
-from ..nbcuda.utils import norm_squared, initialize_uniform, multiply, sum_reduce, copy
 from ..diagonal_precomputation import precompute_gpu
-from .qaoa_fur import apply_qaoa_furx  # , apply_qaoa_furxy_complete, apply_qaoa_furxy_ring
+from ..lazy_import import MPI
+from ..nbcuda.qaoa_simulator import (
+    CostsType,
+    ParamType,
+    QAOAFastSimulatorGPUBase,
+    TermsType,
+)
+from ..nbcuda.utils import copy, initialize_uniform, multiply, norm_squared, sum_reduce
 from .compute_costs import compute_costs, zero_init
+from .qaoa_fur import (
+    apply_qaoa_furx,
+)  # , apply_qaoa_furxy_complete, apply_qaoa_furxy_ring
 
 
 def mpi_available(allow_single_process=False):
@@ -65,16 +74,25 @@ def get_costs(terms, N, rank=0):
 
 
 class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
-    def __init__(self, n_qubits: int, costs: CostsType | None = None, terms: TermsType | None = None) -> None:
+    def __init__(
+        self,
+        n_qubits: int,
+        costs: CostsType | None = None,
+        terms: TermsType | None = None,
+    ) -> None:
         self._comm = MPI.COMM_WORLD
         self._rank = self._comm.Get_rank()
         self._size = self._comm.Get_size()
         _set_gpu_device_roundrobin()
 
-        assert not self._size & (self._size - 1), f"MPI size ({self._size}) is not a power of 2"
+        assert not self._size & (
+            self._size - 1
+        ), f"MPI size ({self._size}) is not a power of 2"
         self.n_all_qubits = n_qubits
         self.n_all_states = 2**self.n_all_qubits
-        assert self._size <= self.n_all_states, f"MPI size ({self._size}) is larger than the number of states ({self.n_all_states})"
+        assert (
+            self._size <= self.n_all_states
+        ), f"MPI size ({self._size}) is larger than the number of states ({self.n_all_states})"
         self.n_local_qubits = n_qubits - int(round(math.log2(self._size)))
         self.n_local_states = 2**self.n_local_qubits
         self._local_index_start = self._rank << self.n_local_qubits
@@ -97,7 +115,9 @@ class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
         elif len(a) == self.n_all_states:
             return a[self._local_index_start : self._local_index_end]
         else:
-            raise ValueError(f"Length of the array must be either 2^{self.n_local_qubits} or 2^{self.n_all_qubits}, got {len(a)} instead")
+            raise ValueError(
+                f"Length of the array must be either 2^{self.n_local_qubits} or 2^{self.n_all_qubits}, got {len(a)} instead"
+            )
 
     def _initialize(
         self,
@@ -106,7 +126,10 @@ class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
         if sv0 is None:
             initialize_uniform(self._sv_device, 1.0 / math.sqrt(self._size))
         else:
-            numba.cuda.to_device(np.asarray(self._get_local_slice(sv0), dtype="complex"), to=self._sv_device)
+            numba.cuda.to_device(
+                np.asarray(self._get_local_slice(sv0), dtype="complex"),
+                to=self._sv_device,
+            )
 
     def _get_optimum_overlap(self, probs_host, costs_host, broadcast=True):
         """
@@ -174,7 +197,13 @@ class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
         else:
             return result.copy_to_host()
 
-    def get_expectation(self, result: DeviceArray, costs: CostsType | None = None, optimization_type="min", **kwargs) -> float:
+    def get_expectation(
+        self,
+        result: DeviceArray,
+        costs: CostsType | None = None,
+        optimization_type="min",
+        **kwargs,
+    ) -> float:
         if costs is None:
             costs = self._hc_diag
         else:
@@ -194,7 +223,12 @@ class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
             return global_sum
 
     def get_overlap(
-        self, result: DeviceArray, costs: CostsType | None = None, indices: np.ndarray | Sequence[int] | None = None, optimization_type="min", **kwargs
+        self,
+        result: DeviceArray,
+        costs: CostsType | None = None,
+        indices: np.ndarray | Sequence[int] | None = None,
+        optimization_type="min",
+        **kwargs,
     ) -> float:
         """
         Get probability corresponding to indices or to ground state of costs
@@ -222,14 +256,20 @@ class QAOAFastSimulatorGPUMPIBase(QAOAFastSimulatorGPUBase):
 
 class QAOAFURXSimulatorGPUMPI(QAOAFastSimulatorGPUMPIBase):
     def _apply_qaoa(self, gammas: Sequence[float], betas: Sequence[float], **kwargs):
-        apply_qaoa_furx(self._sv_device, gammas, betas, self._hc_diag, self.n_local_qubits, self.n_all_qubits, self._comm)
+        apply_qaoa_furx(
+            self._sv_device,
+            gammas,
+            betas,
+            self._hc_diag,
+            self.n_local_qubits,
+            self.n_all_qubits,
+            self._comm,
+        )
 
 
 # class QAOAFURXYRingSimulatorGPUMPI(QAOAFastSimulatorGPUMPIBase):
 #     def _apply_qaoa(self, gammas: Sequence[float], betas: Sequence[float], n_trotters: int = 1):
-#         apply_qaoa_furxy_ring(self._sv_device, gammas, betas, self._hc_diag_device, self.n_qubits, n_trotters=n_trotters)
 
 
 # class QAOAFURXYCompleteSimulatorGPUMPI(QAOAFastSimulatorGPUMPIBase):
 #     def _apply_qaoa(self, gammas: Sequence[float], betas: Sequence[float], n_trotters: int = 1):
-#         apply_qaoa_furxy_complete(self._sv_device, gammas, betas, self._hc_diag_device, self.n_qubits, n_trotters=n_trotters)

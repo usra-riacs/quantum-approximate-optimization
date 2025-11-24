@@ -3,9 +3,11 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
 import numpy as np
-from .utils import ComplexArray, get_complex_array
+
 from . import csim
+from .utils import ComplexArray, get_complex_array
 
 
 def furx(sv: ComplexArray | np.ndarray, theta: float, q: int) -> ComplexArray:
@@ -25,7 +27,9 @@ def furx(sv: ComplexArray | np.ndarray, theta: float, q: int) -> ComplexArray:
     return sv
 
 
-def furxy(sv: ComplexArray | np.ndarray, theta: float, q1: int, q2: int) -> ComplexArray:
+def furxy(
+    sv: ComplexArray | np.ndarray, theta: float, q1: int, q2: int
+) -> ComplexArray:
     """
     apply to a statevector a two-qubit XX+YY rotation defined by
     Rxy(theta) = exp(-i*theta*(XX+YY)/4)

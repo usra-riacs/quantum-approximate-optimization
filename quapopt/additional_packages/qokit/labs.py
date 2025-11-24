@@ -3,12 +3,14 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
-import sys
-from collections.abc import Sequence, Iterable
-import numpy as np
+
+from collections.abc import Iterable, Sequence
+from functools import reduce
 from itertools import combinations
 from operator import mul
-from functools import reduce
+
+import numpy as np
+
 from quapopt.additional_packages.qokit.fur import TermsType
 
 # approximate optimal merit factor and energy for small Ns
@@ -197,7 +199,12 @@ def energy_vals_from_bitstring(x, N: int | None = None) -> float:
     return energy_vals(1 - 2 * x, N=N)
 
 
-def energy_vals_general(s: Sequence, terms: Iterable | None = None, offset: float | None = None, check_parameters: bool = True) -> float:
+def energy_vals_general(
+    s: Sequence,
+    terms: Iterable | None = None,
+    offset: float | None = None,
+    check_parameters: bool = True,
+) -> float:
     """Compute energy values from a string of spins
     Parameters
     ----------
@@ -228,7 +235,12 @@ def energy_vals_general(s: Sequence, terms: Iterable | None = None, offset: floa
     return E_s
 
 
-def energy_vals_from_bitstring_general(x, terms: Sequence | None = None, offset: float | None = None, check_parameters: bool = False) -> float:
+def energy_vals_from_bitstring_general(
+    x,
+    terms: Sequence | None = None,
+    offset: float | None = None,
+    check_parameters: bool = False,
+) -> float:
     """Convenience func
     Useful to get the energy values for bitstrings which are {0,1}^N
     Parameters
@@ -250,7 +262,12 @@ def energy_vals_from_bitstring_general(x, terms: Sequence | None = None, offset:
     return energy_vals_general(1 - 2 * x, terms=terms, offset=offset, check_parameters=check_parameters)  # type: ignore
 
 
-def slow_merit_factor(s: Sequence, terms: Iterable | None = None, offset: float | None = None, check_parameters: bool = True) -> float:
+def slow_merit_factor(
+    s: Sequence,
+    terms: Iterable | None = None,
+    offset: float | None = None,
+    check_parameters: bool = True,
+) -> float:
     """Compute merit factor from a string of spins
 
     Parameters
@@ -391,7 +408,9 @@ def get_depth_optimized_terms(N: int) -> list:
     for pivot in range(N - 3, 0, -1):
         for t in range(1, int((N - pivot - 1) / 2) + 1):
             for k in range(t + 1, N - pivot - t + 1):
-                interactions: list[tuple[int, int, int, int] | tuple[int, int]] = [(pivot, pivot + t, pivot + k, pivot + t + k)]
+                interactions: list[tuple[int, int, int, int] | tuple[int, int]] = [
+                    (pivot, pivot + t, pivot + k, pivot + t + k)
+                ]
                 if set(interactions[0]) in done:
                     continue
                 idx_used = list(interactions[0])
@@ -409,7 +428,11 @@ def get_depth_optimized_terms(N: int) -> list:
                                 if s in idx_used:
                                     break
                                 a = th - (f - s)
-                                if a > 0 and not (a in idx_used) and set([a, th, s, f]) not in done:
+                                if (
+                                    a > 0
+                                    and not (a in idx_used)
+                                    and set([a, th, s, f]) not in done
+                                ):
                                     stack.remove(a)
                                     stack.remove(s)
                                     stack.remove(th)
@@ -426,7 +449,11 @@ def get_depth_optimized_terms(N: int) -> list:
                         f = stack.pop()
                         for k in range(1, int((f - 1) / 2) + 1):
                             a = f - 2 * k
-                            if a > 0 and not (a in idx_used) and set([a, f]) not in done:
+                            if (
+                                a > 0
+                                and not (a in idx_used)
+                                and set([a, f]) not in done
+                            ):
                                 stack.remove(a)
                                 idx_used += [a, f]
                                 done.append(set([a, f]))
@@ -499,7 +526,9 @@ def get_gate_optimized_terms_naive(N: int, number_of_gate_zones: int = 4):
     return terms
 
 
-def get_gate_optimized_terms_greedy(N: int, number_of_gate_zones: int = 4, seed: int | None = None):
+def get_gate_optimized_terms_greedy(
+    N: int, number_of_gate_zones: int = 4, seed: int | None = None
+):
     """
     Try to greedly cancel CNOTs for RZZZZ terms
     """
@@ -566,7 +595,9 @@ def get_gate_optimized_terms_greedy(N: int, number_of_gate_zones: int = 4, seed:
 
                 terms_with_scores.append(sc)
 
-            score, num_cancels, new_term = tuple(sorted(terms_with_scores, key=lambda x: -x[0])[0])
+            score, num_cancels, new_term = tuple(
+                sorted(terms_with_scores, key=lambda x: -x[0])[0]
+            )
 
             terms.remove(new_term)
             circuit.append(new_term)

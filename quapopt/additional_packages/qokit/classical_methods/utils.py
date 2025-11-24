@@ -2,7 +2,7 @@
 # // SPDX-License-Identifier: Apache-2.0
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
-from docplex.mp.progress import ProgressListener, ProgressClock
+from docplex.mp.progress import ProgressClock, ProgressListener
 
 
 class BestBoundAborter(ProgressListener):
@@ -26,5 +26,7 @@ class BestBoundAborter(ProgressListener):
         if pdata.has_incumbent:
             self.last_obj = pdata.current_objective
             if self.last_obj <= self.max_best_bound:
-                print(f"_____ FOUND Feasible solution {self.last_obj} smaller than stopping condition {self.max_best_bound}")
+                print(
+                    f"_____ FOUND Feasible solution {self.last_obj} smaller than stopping condition {self.max_best_bound}"
+                )
                 self.abort()

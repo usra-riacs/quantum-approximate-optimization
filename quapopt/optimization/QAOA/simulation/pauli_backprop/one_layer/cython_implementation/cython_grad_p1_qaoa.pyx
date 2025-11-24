@@ -3,9 +3,10 @@
 
 
 import numpy as np
-cimport numpy as np
+
 cimport cython
-from libc.math cimport sin, cos
+cimport numpy as np
+from libc.math cimport cos, sin
 
 ctypedef fused floating:
     np.float32_t

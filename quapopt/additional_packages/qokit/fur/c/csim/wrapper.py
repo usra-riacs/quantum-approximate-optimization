@@ -3,6 +3,7 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 import typing
+
 import numpy as np
 
 
@@ -10,13 +11,19 @@ def check_arrays(*arrs: np.ndarray) -> int:
     """check that all arrays have the same length and return the length"""
     n = len(arrs[0])
     for arr in arrs[1:]:
-        assert n == len(arr), f"Input arrays do not have the same size: {', '.join(str(len(arr)) for arr in arrs)}"
+        assert n == len(
+            arr
+        ), f"Input arrays do not have the same size: {', '.join(str(len(arr)) for arr in arrs)}"
     return n
 
 
 def check_num_qubits(n_qubits, n_states):
     """check that the number of qubits and the number of states match"""
-    assert n_states == 2**n_qubits, "state vector length {} and number of qubits {} do not match".format(n_states, n_qubits)
+    assert (
+        n_states == 2**n_qubits
+    ), "state vector length {} and number of qubits {} do not match".format(
+        n_states, n_qubits
+    )
 
 
 def furx(

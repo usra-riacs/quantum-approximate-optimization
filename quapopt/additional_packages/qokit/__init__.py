@@ -13,6 +13,3 @@ THE ORIGINAL LICENSE of QOKit:
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 """
-
-from quapopt.additional_packages.qokit import *
-

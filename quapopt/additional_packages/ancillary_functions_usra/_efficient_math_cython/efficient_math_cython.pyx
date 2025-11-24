@@ -3,9 +3,9 @@
 
 
 import numpy as np
-cimport numpy as np
-cimport cython
 
+cimport cython
+cimport numpy as np
 
 ctypedef np.complex128_t COMPLEX128_t
 ctypedef np.float32_t FLOAT32_t

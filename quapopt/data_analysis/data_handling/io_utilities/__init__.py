@@ -7,32 +7,41 @@ import os
 import pickle
 import time
 from pathlib import Path
-from typing import Optional, List, Any, Tuple, Union, Dict, Type
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
 from quapopt import ancillary_functions as anf
-
-from quapopt.data_analysis.data_handling.schemas.naming import (MAIN_KEY_VALUE_SEPARATOR as MKVS,
-                                                                SUB_KEY_VALUE_SEPARATOR as SKVS,
-                                                                STANDARD_NAMES_VARIABLES as SNV,
-                                                                STANDARD_NAMES_DATA_TYPES as SNDT,
-                                                                HamiltonianClassSpecifierGeneral,
-                                                                HamiltonianInstanceSpecifierGeneral,
-                                                                MAIN_KEY_SEPARATOR as MKS,
-                                                                DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
-                                                                DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-                                                                BaseNameDataType
-                                                                )
-
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+    DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
+)
+from quapopt.data_analysis.data_handling.schemas.naming import MAIN_KEY_SEPARATOR as MKS
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    MAIN_KEY_VALUE_SEPARATOR as MKVS,
+)
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    STANDARD_NAMES_DATA_TYPES as SNDT,
+)
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    STANDARD_NAMES_VARIABLES as SNV,
+)
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    SUB_KEY_VALUE_SEPARATOR as SKVS,
+)
+from quapopt.data_analysis.data_handling.schemas.naming import (
+    BaseNameDataType,
+    HamiltonianClassSpecifierGeneral,
+    HamiltonianInstanceSpecifierGeneral,
+)
 
 load_dotenv()
 
 try:
-    DEFAULT_STORAGE_DIRECTORY = Path(os.getenv('DEFAULT_STORAGE_DIRECTORY'))
-except Exception as e:
+    DEFAULT_STORAGE_DIRECTORY = Path(os.getenv("DEFAULT_STORAGE_DIRECTORY"))
+except Exception:
     # in case the environment variable is not set, we will use the default path
     import quapopt
 
@@ -46,59 +55,71 @@ if DEFAULT_STORAGE_DIRECTORY is None:
 
 DEFAULT_STORAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
-SUPPORTED_DATATYPES_BASIC = ['float', 'float16', 'float32', 'float64',
-                             'int', 'int8', 'int16', 'int32', 'int64',
-                             'str', 'bool', 'uint', 'uint8', 'uint16', 'uint32', 'uint64',
-                             ]
-SUPPORTED_DATATYPES_COMPLEX = ['list', 'tuple',
-                               'dict', 'set',
-                               'ndarray', 'None']
+SUPPORTED_DATATYPES_BASIC = [
+    "float",
+    "float16",
+    "float32",
+    "float64",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+    "str",
+    "bool",
+    "uint",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64",
+]
+SUPPORTED_DATATYPES_COMPLEX = ["list", "tuple", "dict", "set", "ndarray", "None"]
 SUPPORTED_DATATYPES = SUPPORTED_DATATYPES_BASIC + SUPPORTED_DATATYPES_COMPLEX
 
-INTEGER_TUPLE_TYPES = [SNV.Bitflip.id, SNV.Bitflip.id_long,
-                       SNV.Bitstring.id, SNV.Bitstring.id_long,
-                       SNV.Permutation.id, SNV.Permutation.id_long,
-                       ]
+INTEGER_TUPLE_TYPES = [
+    SNV.Bitflip.id,
+    SNV.Bitflip.id_long,
+    SNV.Bitstring.id,
+    SNV.Bitstring.id_long,
+    SNV.Permutation.id,
+    SNV.Permutation.id_long,
+]
 
 
-def _string_mod_fun1(string: str | Path,
-                     suffix: str):
+def _string_mod_fun1(string: str | Path, suffix: str):
     input_format = type(string)
     string = str(string)
 
-    if not suffix.startswith('.'):
-        proper_suffix = f'.{suffix}'
+    if not suffix.startswith("."):
+        proper_suffix = f".{suffix}"
     else:
         proper_suffix = suffix
     return input_format, string, proper_suffix
 
 
-def _string_mod_fun2(string: str | Path,
-                     input_format: type):
+def _string_mod_fun2(string: str | Path, input_format: type):
     if issubclass(input_format, Path):
         return Path(string)
     elif input_format == str:
         return string
     else:
-        raise TypeError(f"Unsupported input type: {input_format}. Expected str or Path.")
+        raise TypeError(
+            f"Unsupported input type: {input_format}. Expected str or Path."
+        )
 
 
 # def with_suffix_patch(string:str|Path,
 #                       suffix:str)->Path|str:
 #     input_format, string, proper_suffix = _string_mod_fun1(string=string,
 #                                                             suffix=suffix)
-#     l = len(proper_suffix)
 #
 #     if string.endswith(proper_suffix):
-#         string = string[:-l]
-#     else:
-#         string = string + proper_suffix
 #
 #     return _string_mod_fun2(string=string,
 #                             input_format=input_format)
 
-def add_file_format_suffix(string: str | Path,
-                           suffix: str) -> Path:
+
+def add_file_format_suffix(string: str | Path, suffix: str) -> Path:
     """
     A patch for the Path.with_suffix method to ensure it works correctly with strings that contain floats (i.e., they
     include dot characters so the Path.with_suffix method does not work correctly).
@@ -107,26 +128,21 @@ def add_file_format_suffix(string: str | Path,
     :return:
     """
 
-    input_format, string, proper_suffix = _string_mod_fun1(string=string,
-                                                           suffix=suffix)
+    input_format, string, proper_suffix = _string_mod_fun1(string=string, suffix=suffix)
 
     if not string.endswith(proper_suffix):
         string = string + proper_suffix
 
-    return _string_mod_fun2(string=string,
-                            input_format=input_format)
+    return _string_mod_fun2(string=string, input_format=input_format)
 
 
-def remove_file_format_suffix(string: str | Path,
-                              suffix: str):
-    input_format, string, proper_suffix = _string_mod_fun1(string=string,
-                                                           suffix=suffix)
+def remove_file_format_suffix(string: str | Path, suffix: str):
+    input_format, string, proper_suffix = _string_mod_fun1(string=string, suffix=suffix)
 
     if string.endswith(proper_suffix):
-        string = string[:-len(proper_suffix)]
+        string = string[: -len(proper_suffix)]
 
-    return _string_mod_fun2(string=string,
-                            input_format=input_format)
+    return _string_mod_fun2(string=string, input_format=input_format)
 
 
 class IOMixin:
@@ -136,10 +152,7 @@ class IOMixin:
         return copy.deepcopy(self)
 
     @classmethod
-    def get_key_value_pair(cls,
-                           key_id: str,
-                           value: str,
-                           major=True) -> str:
+    def get_key_value_pair(cls, key_id: str, value: str, major=True) -> str:
         """Generate a standardized prefix for metadata files."""
 
         if major:
@@ -148,16 +161,14 @@ class IOMixin:
             return f"{key_id}{SKVS}{value}"
 
     @classmethod
-    def get_data_type_suffix(cls,
-                             data_type: BaseNameDataType) -> str:
+    def get_data_type_suffix(cls, data_type: BaseNameDataType) -> str:
         """Get the standardized suffix for a given data type."""
-        return cls.get_key_value_pair(key_id=SNDT.DataType.id,
-                                      value=data_type.id)
+        return cls.get_key_value_pair(key_id=SNDT.DataType.id, value=data_type.id)
 
     @classmethod
-    def get_default_storage_directory(cls,
-                                      default_storage_directory: Optional[
-                                          str | Path] = DEFAULT_STORAGE_DIRECTORY) -> Path:
+    def get_default_storage_directory(
+        cls, default_storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY
+    ) -> Path:
         """
         Get the default storage directory for all data.
         It is a folder where ALL data is stored, including hamiltonians, results, etc.
@@ -173,9 +184,11 @@ class IOMixin:
             return Path(default_storage_directory)
 
     @classmethod
-    def construct_base_path(cls,
-                            directory_main: Optional[str | Path] = None,
-                            default_storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY) -> Path:
+    def construct_base_path(
+        cls,
+        directory_main: Optional[str | Path] = None,
+        default_storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY,
+    ) -> Path:
 
         directory_main = directory_main
         default_storage_directory = default_storage_directory
@@ -189,9 +202,11 @@ class IOMixin:
                 directory_main = Path("output")
 
         if directory_main == Path().cwd():
-            print("Warning: 'base_path' is set to the current working directory, but "
-                  "'default_storage_directory' is provided. We ignore 'default_storage_directory' "
-                  "and use cwd as the main directory.")
+            print(
+                "Warning: 'base_path' is set to the current working directory, but "
+                "'default_storage_directory' is provided. We ignore 'default_storage_directory' "
+                "and use cwd as the main directory."
+            )
             default_storage_directory = Path()
 
         default_storage_directory = Path(default_storage_directory)
@@ -201,32 +216,41 @@ class IOMixin:
         return base_path
 
     @classmethod
-    def get_hamiltonian_data_base_path(cls,
-                                       storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY) -> Path:
+    def get_hamiltonian_data_base_path(
+        cls, storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY
+    ) -> Path:
         """
         Get the main path for hamiltonian data storage.
         :param storage_directory:
         :return:
         """
-        path_main = cls.get_default_storage_directory(default_storage_directory=storage_directory)
+        path_main = cls.get_default_storage_directory(
+            default_storage_directory=storage_directory
+        )
         return path_main / "HamiltonianData" / "Hamiltonians"
 
     @classmethod
-    def get_hamiltonian_class_base_path(cls,
-                                        hamiltonian_class_specifier: HamiltonianClassSpecifierGeneral,
-                                        storage_directory: Optional[
-                                            str | Path] = DEFAULT_STORAGE_DIRECTORY) -> Path:
+    def get_hamiltonian_class_base_path(
+        cls,
+        hamiltonian_class_specifier: HamiltonianClassSpecifierGeneral,
+        storage_directory: Optional[str | Path] = DEFAULT_STORAGE_DIRECTORY,
+    ) -> Path:
         if hamiltonian_class_specifier is None:
             raise ValueError("Hamiltonian class specifier is None.")
-        hamiltonian_class_description = hamiltonian_class_specifier.get_description_string()
-        path_full = cls.get_hamiltonian_data_base_path(storage_directory=storage_directory)
+        hamiltonian_class_description = (
+            hamiltonian_class_specifier.get_description_string()
+        )
+        path_full = cls.get_hamiltonian_data_base_path(
+            storage_directory=storage_directory
+        )
         path_full = path_full / hamiltonian_class_description
         path_full.mkdir(parents=True, exist_ok=True)
         return path_full
 
     @classmethod
-    def get_hamiltonian_instance_filename(cls,
-                                          hamiltonian_instance_specifier: HamiltonianInstanceSpecifierGeneral) -> str:
+    def get_hamiltonian_instance_filename(
+        cls, hamiltonian_instance_specifier: HamiltonianInstanceSpecifierGeneral
+    ) -> str:
         """
         Get the filename for a hamiltonian instance based on its specifier.
         In this case, it's just a wrapper for another function, but maybe in the future it will be more complex.
@@ -234,12 +258,13 @@ class IOMixin:
         :return:
         """
 
-        assert hamiltonian_instance_specifier is not None, "Hamiltonian instance specifier is None."
+        assert (
+            hamiltonian_instance_specifier is not None
+        ), "Hamiltonian instance specifier is None."
         return hamiltonian_instance_specifier.get_description_string()
 
     @classmethod
-    def get_subpath_of_data_type(cls,
-                                 data_type: BaseNameDataType) -> Path:
+    def get_subpath_of_data_type(cls, data_type: BaseNameDataType) -> Path:
 
         if data_type is None:
             data_type = SNDT.Unspecified
@@ -249,19 +274,22 @@ class IOMixin:
 
         return Path() / data_category / data_subcategory / data_type.id_long
 
-    def get_absolute_path_of_data_type(self,
-                                       data_type: BaseNameDataType) -> Path:
+    def get_absolute_path_of_data_type(self, data_type: BaseNameDataType) -> Path:
         """
         Get the absolute path for a given data type.
         :param data_type:
         :return:
         """
-        return self.construct_base_path() / self.get_subpath_of_data_type(data_type=data_type)
+        return self.construct_base_path() / self.get_subpath_of_data_type(
+            data_type=data_type
+        )
 
     @classmethod
-    def parse_table_name(cls,
-                         full_table_name: str,
-                         name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
+    def parse_table_name(
+        cls,
+        full_table_name: str,
+        name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
+    ):
         """
 
         :param full_table_name:
@@ -281,8 +309,10 @@ class IOMixin:
         return full_table_name.split(name_parts_separator)
 
     @classmethod
-    def parse_file_type_suffix(cls,
-                               file_name: str | Path, ):
+    def parse_file_type_suffix(
+        cls,
+        file_name: str | Path,
+    ):
         """
         Parse the file name to extract the stem and suffix.
         :param file_name:
@@ -292,34 +322,46 @@ class IOMixin:
         return file_name.stem, file_name.suffix
 
     @classmethod
-    def join_table_name_parts(cls,
-                              table_name_parts: List[Optional[str]],
-                              name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
+    def join_table_name_parts(
+        cls,
+        table_name_parts: List[Optional[str]],
+        name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
+    ):
 
-        joined_name = name_parts_separator.join(
-            [part for part in table_name_parts if (part is not None and part != "")]) if table_name_parts else ""
+        joined_name = (
+            name_parts_separator.join(
+                [part for part in table_name_parts if (part is not None and part != "")]
+            )
+            if table_name_parts
+            else ""
+        )
 
         return joined_name
 
     @classmethod
-    def get_full_table_name(cls,
-                            table_name_parts: List[Optional[str]],
-                            data_type: Optional[BaseNameDataType] = None,
-                            name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR):
+    def get_full_table_name(
+        cls,
+        table_name_parts: List[Optional[str]],
+        data_type: Optional[BaseNameDataType] = None,
+        name_parts_separator: str = DEFAULT_TABLE_NAME_PARTS_SEPARATOR,
+    ):
 
         data_type_suffix = cls.get_data_type_suffix(data_type=data_type)
         if data_type_suffix not in table_name_parts:
             table_name_parts.append(data_type_suffix)
 
-        return cls.join_table_name_parts(table_name_parts=table_name_parts,
-                                         name_parts_separator=name_parts_separator)
+        return cls.join_table_name_parts(
+            table_name_parts=table_name_parts, name_parts_separator=name_parts_separator
+        )
 
     @classmethod
-    def write_pickled_results(cls,
-                              object_to_save: Any,
-                              file_path: str | Path,
-                              add_timestamp_if_exists: bool = True,
-                              overwrite_if_exists: bool = False) -> None:
+    def write_pickled_results(
+        cls,
+        object_to_save: Any,
+        file_path: str | Path,
+        add_timestamp_if_exists: bool = True,
+        overwrite_if_exists: bool = False,
+    ) -> None:
         """
         Save an object to a pickle file at the specified file path.
         If file exists, the default behavior is to add a timestamp to the file name.
@@ -335,28 +377,33 @@ class IOMixin:
         """
 
         file_path = Path(file_path)
-        file_path = remove_file_format_suffix(string=file_path,
-                                              suffix='.pkl')
+        file_path = remove_file_format_suffix(string=file_path, suffix=".pkl")
 
         if file_path.exists():
             if overwrite_if_exists:
                 file_path.unlink()  # Remove the existing file
             elif add_timestamp_if_exists:
-                file_path = file_path + Path(f"Time{MKVS}{time.strftime(f'%Y-%m-%d-%H-%M-%S')}")
+                file_path = file_path + Path(
+                    f"Time{MKVS}{time.strftime(f'%Y-%m-%d-%H-%M-%S')}"
+                )
             else:
-                raise FileExistsError(f"File {file_path} already exists. "
-                                      f"Use 'overwrite_if_exists' or 'add_timestamp_if_exists' to handle this.")
+                raise FileExistsError(
+                    f"File {file_path} already exists. "
+                    f"Use 'overwrite_if_exists' or 'add_timestamp_if_exists' to handle this."
+                )
 
         file_path = add_file_format_suffix(string=file_path, suffix=".pkl")
-        with open(f"{file_path}", 'wb') as f:
+        with open(f"{file_path}", "wb") as f:
             pickle.dump(object_to_save, f, pickle.HIGHEST_PROTOCOL)
 
     @classmethod
-    def write_json_results(cls,
-                           data: Any,
-                           full_path: str | Path,
-                           overwrite_existing: bool = False,
-                           add_timestamp_if_exists:bool=True):
+    def write_json_results(
+        cls,
+        data: Any,
+        full_path: str | Path,
+        overwrite_existing: bool = False,
+        add_timestamp_if_exists: bool = True,
+    ):
         """
         Save metadata to a JSON file in a standardized format.
         :param data:
@@ -366,9 +413,10 @@ class IOMixin:
 
         """
         import json
+
         full_path = Path(full_path)
 
-        full_path = add_file_format_suffix(string=full_path, suffix='.json')
+        full_path = add_file_format_suffix(string=full_path, suffix=".json")
 
         if full_path.exists():
             if not overwrite_existing:
@@ -377,112 +425,112 @@ class IOMixin:
                 # Remove existing file if overwrite is requested
                 full_path.unlink()
             elif add_timestamp_if_exists:
-                full_path = full_path.with_name(f"{full_path.stem}_Time{MKVS}{time.strftime(f'%Y-%m-%d-%H-%M-%S')}{full_path.suffix}")
-
-
+                full_path = full_path.with_name(
+                    f"{full_path.stem}_Time{MKVS}{time.strftime(f'%Y-%m-%d-%H-%M-%S')}{full_path.suffix}"
+                )
 
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Prepare metadata for JSON serialization
         if isinstance(data, pd.DataFrame):
             metadata_to_save = {
-                '_type': 'pandas_dataframe',
-                'data': data.to_dict('records'),
-                'columns': list(data.columns)
+                "_type": "pandas_dataframe",
+                "data": data.to_dict("records"),
+                "columns": list(data.columns),
             }
         else:
             metadata_to_save = data
 
         # Save to JSON
-        with open(full_path, 'w') as f:
+        with open(full_path, "w") as f:
             json.dump(metadata_to_save, f, indent=2, default=str)
-
 
         return full_path
 
-
-
     @classmethod
-    def write_dataframe_results(cls,
-                                data: pd.DataFrame,
-                                full_path: str | Path):
+    def write_dataframe_results(cls, data: pd.DataFrame, full_path: str | Path):
         """
         Save a pandas DataFrame to a CSV file in a standardized format.
         :param data:
         :param full_path:
         :return:
         """
-        # print('timestop 3', full_path)
         full_path = Path(full_path)
 
-        full_path = add_file_format_suffix(string=full_path, suffix='.csv')
-
-        # print('timestop 4', full_path)
+        full_path = add_file_format_suffix(string=full_path, suffix=".csv")
 
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
-        data.to_csv(str(full_path),
-                    index=False,
-                    mode='a',
-                    header=not os.path.exists(full_path),
-                    quoting=csv.QUOTE_NONNUMERIC)
+        data.to_csv(
+            str(full_path),
+            index=False,
+            mode="a",
+            header=not os.path.exists(full_path),
+            quoting=csv.QUOTE_NONNUMERIC,
+        )
 
         return full_path
 
     @classmethod
-    def write_results(cls,
-                      data: Union[pd.DataFrame, Any],
-                      full_path: str | Path,
-                      format_type: str = 'dataframe',
-                      overwrite_existing_non_csv:bool=False,
-                      add_timestamp_if_exists:bool=True
-                      ):
+    def write_results(
+        cls,
+        data: Union[pd.DataFrame, Any],
+        full_path: str | Path,
+        format_type: str = "dataframe",
+        overwrite_existing_non_csv: bool = False,
+        add_timestamp_if_exists: bool = True,
+    ):
 
-        # print('timestop 2', full_path)
-
-        if format_type.lower() in ['dataframe']:
-            return cls.write_dataframe_results(data=data,
-                                               full_path=full_path)
-        elif format_type.lower() in ['pickle']:
-            return cls.write_pickled_results(object_to_save=data,
-                                             file_path=full_path,
-                                             overwrite_if_exists=overwrite_existing_non_csv)
-        elif format_type.lower() in ['json']:
-            return cls.write_json_results(data=data,
-                                          full_path=full_path,
-                                          overwrite_existing=overwrite_existing_non_csv,
-                                          add_timestamp_if_exists=True)
+        if format_type.lower() in ["dataframe"]:
+            return cls.write_dataframe_results(data=data, full_path=full_path)
+        elif format_type.lower() in ["pickle"]:
+            return cls.write_pickled_results(
+                object_to_save=data,
+                file_path=full_path,
+                overwrite_if_exists=overwrite_existing_non_csv,
+            )
+        elif format_type.lower() in ["json"]:
+            return cls.write_json_results(
+                data=data,
+                full_path=full_path,
+                overwrite_existing=overwrite_existing_non_csv,
+                add_timestamp_if_exists=True,
+            )
 
         else:
-            raise ValueError(f"Unsupported format_type: {format_type}. Supported types are 'dataframe' and 'pickle'.")
+            raise ValueError(
+                f"Unsupported format_type: {format_type}. Supported types are 'dataframe' and 'pickle'."
+            )
 
     @classmethod
-    def read_pickled_results(cls,
-                             file_path: str | Path,
-                             return_none_if_not_found=False) -> Any:
+    def read_pickled_results(
+        cls, file_path: str | Path, return_none_if_not_found=False
+    ) -> Any:
         """
-          Read an object from a pickle file at the specified file path.
-          :param file_path:
-          :param return_none_if_not_found:
-          :return:
-          """
+        Read an object from a pickle file at the specified file path.
+        :param file_path:
+        :param return_none_if_not_found:
+        :return:
+        """
 
         file_path = add_file_format_suffix(string=file_path, suffix=".pkl")
 
         try:
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 object_read = pickle.load(f)
             return object_read
-        except(FileNotFoundError) as e:
+        except FileNotFoundError as e:
             if return_none_if_not_found:
                 return None
             else:
                 raise e
 
     @classmethod
-    def _convert_value_basic(cls,
-                             column_series: pd.DataFrame,
-                             type_name: str, ):
+    def _convert_value_basic(
+        cls,
+        column_series: pd.DataFrame,
+        type_name: str,
+    ):
         """
         Convert a pandas Series to a specific basic data type.
         :param column_series:
@@ -493,33 +541,31 @@ class IOMixin:
         if type_name not in SUPPORTED_DATATYPES_BASIC:
             return column_series
 
-        if type_name == 'float':
+        if type_name == "float":
             return column_series.astype(float)
-        elif type_name == 'float64':
+        elif type_name == "float64":
             return column_series.astype(np.float64)
-        elif type_name == 'float32':
+        elif type_name == "float32":
             return column_series.astype(np.float32)
-        elif type_name == 'float16':
+        elif type_name == "float16":
             return column_series.astype(np.float16)
-        elif type_name == 'int':
+        elif type_name == "int":
             return column_series.astype(int)
-        elif type_name == 'int8':
+        elif type_name == "int8":
             return column_series.astype(np.int8)
-        elif type_name == 'int16':
+        elif type_name == "int16":
             return column_series.astype(np.int16)
-        elif type_name == 'int32':
+        elif type_name == "int32":
             return column_series.astype(np.int32)
-        elif type_name == 'int64':
+        elif type_name == "int64":
             return column_series.astype(np.int64)
-        elif type_name == 'str':
+        elif type_name == "str":
             return column_series.astype(str)
-        elif type_name == 'bool':
+        elif type_name == "bool":
             return column_series.astype(bool)
 
     @classmethod
-    def annotate_dataframe(cls,
-                           dataframe: pd.DataFrame,
-                           annotation: Dict[str, Any]):
+    def annotate_dataframe(cls, dataframe: pd.DataFrame, annotation: Dict[str, Any]):
         """
         Annotate a pandas DataFrame with new columns based on the provided annotation dictionary.
         :param dataframe:
@@ -542,8 +588,7 @@ class IOMixin:
         return dataframe
 
     @classmethod
-    def _df_rename_datatypes_columns(cls,
-                                     dataframe: pd.DataFrame):
+    def _df_rename_datatypes_columns(cls, dataframe: pd.DataFrame):
         dataframe = dataframe.copy()
         columns_renamed = {}
         for col in dataframe.columns:
@@ -559,23 +604,24 @@ class IOMixin:
                 if column_type_detected in SUPPORTED_DATATYPES:
                     col_type = column_type_detected
                 else:
-                    col_type = 'Unknown'
-            # print(types_col, column_type_detected, col_type)
+                    col_type = "Unknown"
             #
             else:
-                col_type = 'Unknown'
+                col_type = "Unknown"
 
-            col_new_name = f'{col}{DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR}{col_type}'
+            col_new_name = f"{col}{DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR}{col_type}"
             columns_renamed[col] = col_new_name
         dataframe_renamed = dataframe.rename(columns=columns_renamed)
         return dataframe_renamed
 
     @classmethod
-    def read_pandas_dataframe(cls,
-                              full_path: str | Path,
-                              number_of_threads=1,
-                              type_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-                              return_none_if_not_found=False):
+    def read_pandas_dataframe(
+        cls,
+        full_path: str | Path,
+        number_of_threads=1,
+        type_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+        return_none_if_not_found=False,
+    ):
         """
         Read a pandas DataFrame from a file in a standardized format.
         :param full_path:
@@ -590,10 +636,10 @@ class IOMixin:
         :return:
         """
 
-        full_path = add_file_format_suffix(string=full_path, suffix='.csv')
+        full_path = add_file_format_suffix(string=full_path, suffix=".csv")
         try:
             df_read = pd.read_csv(str(full_path))
-        except(FileNotFoundError) as e:
+        except FileNotFoundError as e:
             if return_none_if_not_found:
                 return None
             else:
@@ -615,7 +661,7 @@ class IOMixin:
 
                 col_type = None
                 if col_name in INTEGER_TUPLE_TYPES:
-                    col_type = 'tuple'
+                    col_type = "tuple"
                 else:
                     for _, base_name in SNV.get_all_attributes().items():
                         id_short, id_long = base_name.id, base_name.id_long
@@ -624,63 +670,64 @@ class IOMixin:
                             break
 
                 if col_type is None:
-                    col_type = 'Unknown'
+                    col_type = "Unknown"
                 columns_renamed[col] = col_name
                 columns_types[col_name] = col_type
             else:
                 raise ValueError(f"Column name '{col}' is not properly formatted.")
             try:
-                if col_type == 'Unknown':
+                if col_type == "Unknown":
                     pass
                 elif col_type in SUPPORTED_DATATYPES_BASIC:
-                    # print("CONVERTING TO:",col_type)
-                    df_read[col] = cls._convert_value_basic(column_series=df_read[col],
-                                                            type_name=col_type)
+                    df_read[col] = cls._convert_value_basic(
+                        column_series=df_read[col], type_name=col_type
+                    )
                 elif col_type in SUPPORTED_DATATYPES_COMPLEX:
-                    if col_name in INTEGER_TUPLE_TYPES and col_type == 'tuple':
+                    if col_name in INTEGER_TUPLE_TYPES and col_type == "tuple":
                         try:
                             df_read[col] = anf.df_column_apply_function_parallelized(
                                 series=df_read[col],
                                 function_to_apply=anf.eval_string_tuple_to_tuple,
-                                number_of_threads=number_of_threads)
-                        except(ValueError) as e:
+                                number_of_threads=number_of_threads,
+                            )
+                        except ValueError as e:
                             df_read[col] = anf.df_column_apply_function_parallelized(
                                 series=df_read[col],
                                 function_to_apply=anf.eval_string_float_tuple_to_int_tuple,
-                                number_of_threads=number_of_threads)
-                    elif col_name in INTEGER_TUPLE_TYPES and col_type == 'ndarray':
-                        # print("HEJKA HERE")
-                        # print(df_read[col].values[0])
+                                number_of_threads=number_of_threads,
+                            )
+                    elif col_name in INTEGER_TUPLE_TYPES and col_type == "ndarray":
                         df_read[col] = anf.df_column_apply_function_parallelized(
                             series=df_read[col],
-                            function_to_apply=lambda x: np.fromstring(x[1:-1], dtype=int, sep=' '),
-                            number_of_threads=number_of_threads)
+                            function_to_apply=lambda x: np.fromstring(
+                                x[1:-1], dtype=int, sep=" "
+                            ),
+                            number_of_threads=number_of_threads,
+                        )
 
-                    elif col_type in ['list']:
+                    elif col_type in ["list"]:
                         df_read[col] = df_read[col].apply(lambda x: eval(x))
 
-
-
-
-
-            except(ValueError) as val_err:
+            except ValueError as val_err:
                 print("ERROR READING COLUMN:", col)
                 print("MESSAGE:", val_err)
                 columns_renamed[col] = col
-                columns_types[col] = 'Unknown'
+                columns_types[col] = "Unknown"
 
         df_read = df_read.rename(columns=columns_renamed)
         return df_read
 
     @classmethod
-    def read_results(cls,
-                     full_path: str | Path,
-                     format_type='dataframe',
-                     df_annotations_dict: dict = None,
-                     excluded_trials=None,
-                     name_type_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
-                     return_none_if_not_found=False,
-                     number_of_threads=1, ):
+    def read_results(
+        cls,
+        full_path: str | Path,
+        format_type="dataframe",
+        df_annotations_dict: dict = None,
+        excluded_trials=None,
+        name_type_separator=DEFAULT_DATAFRAME_NAME_TYPE_SEPARATOR,
+        return_none_if_not_found=False,
+        number_of_threads=1,
+    ):
         """
         Function to read results from a file in a standardized format.
         :param full_path:
@@ -703,39 +750,49 @@ class IOMixin:
 
         full_path = Path(full_path)
 
-        if format_type.lower() == 'dataframe':
-            df_read = cls.read_pandas_dataframe(full_path=full_path,
-                                                number_of_threads=number_of_threads,
-                                                type_separator=name_type_separator,
-                                                return_none_if_not_found=return_none_if_not_found)
+        if format_type.lower() == "dataframe":
+            df_read = cls.read_pandas_dataframe(
+                full_path=full_path,
+                number_of_threads=number_of_threads,
+                type_separator=name_type_separator,
+                return_none_if_not_found=return_none_if_not_found,
+            )
 
-        elif format_type.lower() == 'pickle':
-            return cls.read_pickled_results(file_path=full_path,
-                                            return_none_if_not_found=return_none_if_not_found)
+        elif format_type.lower() == "pickle":
+            return cls.read_pickled_results(
+                file_path=full_path, return_none_if_not_found=return_none_if_not_found
+            )
 
         else:
-            raise ValueError(f"Unsupported format_type: {format_type}. Supported types are 'dataframe' and 'pickle'.")
+            raise ValueError(
+                f"Unsupported format_type: {format_type}. Supported types are 'dataframe' and 'pickle'."
+            )
 
         if excluded_trials is not None:
             if SNV.TrialIndex.id_long in df_read.columns:
-                df_read = df_read[~df_read[SNV.TrialIndex.id_long].isin(excluded_trials)]
+                df_read = df_read[
+                    ~df_read[SNV.TrialIndex.id_long].isin(excluded_trials)
+                ]
             elif SNV.TrialIndex.id in df_read.columns:
                 df_read = df_read[~df_read[SNV.TrialIndex.id].isin(excluded_trials)]
 
         if df_annotations_dict is not None:
-            df_read = cls.annotate_dataframe(dataframe=df_read,
-                                             annotation=df_annotations_dict)
+            df_read = cls.annotate_dataframe(
+                dataframe=df_read, annotation=df_annotations_dict
+            )
 
         return df_read
 
 
 class IOHamiltonianMixin(IOMixin):
     @classmethod
-    def _write_hamiltonian_to_text_file(cls,
-                                        hamiltonian: List[Tuple[Union[float, int], Tuple[int, ...]]],
-                                        file_path: str | Path,
-                                        overwrite_if_exists: bool = False,
-                                        ignore_if_exists:bool=True) -> None:
+    def _write_hamiltonian_to_text_file(
+        cls,
+        hamiltonian: List[Tuple[Union[float, int], Tuple[int, ...]]],
+        file_path: str | Path,
+        overwrite_if_exists: bool = False,
+        ignore_if_exists: bool = True,
+    ) -> None:
         """
         Write a hamiltonian to a text file in a standard format
         :param hamiltonian:
@@ -756,79 +813,91 @@ class IOHamiltonianMixin(IOMixin):
                 print("Hamiltonian exists, not overwriting.")
                 return
             else:
-                raise FileExistsError(f"File {file_path} already exists. "
-                                      f"Use 'overwrite_if_exists' to handle this or 'ignore_if_exists' to ignore it.")
+                raise FileExistsError(
+                    f"File {file_path} already exists. "
+                    f"Use 'overwrite_if_exists' to handle this or 'ignore_if_exists' to ignore it."
+                )
 
-        with open(file_path, 'w') as file:
+        with open(file_path, "w") as file:
             for weight, edge in hamiltonian:
-                file_line = f' '.join([str(qubit) for qubit in edge])
+                file_line = f" ".join([str(qubit) for qubit in edge])
                 file_line = f"{file_line}|{weight}\n"
                 file.write(file_line)
 
     @classmethod
-    def _load_hamiltonian_from_text_file(cls,
-                                         file_path: str | Path) -> List[Tuple[float, Tuple[int, ...]]]:
+    def _load_hamiltonian_from_text_file(
+        cls, file_path: str | Path
+    ) -> List[Tuple[float, Tuple[int, ...]]]:
         """
         Load a hamiltonian from a text file in a standard format.
         :param file_path:
         :return:
         """
 
-        file_path = add_file_format_suffix(string=file_path, suffix='.txt')
+        file_path = add_file_format_suffix(string=file_path, suffix=".txt")
 
         hamiltonian = []
-        with open(f"{file_path}", 'r') as file:
+        with open(f"{file_path}", "r") as file:
             for line in file:
                 line = line.strip()
-                edge, weight = line.split('|')
+                edge, weight = line.split("|")
                 edge = tuple([int(qubit) for qubit in edge.split()])
                 weight = float(weight)
                 hamiltonian.append((weight, edge))
         return hamiltonian
 
     @classmethod
-    def _write_single_solution(cls,
-                               full_path: str | Path,
-                               bitstring: Union[Tuple[int, ...], str, np.ndarray, List[int]],
-                               energy: float):
+    def _write_single_solution(
+        cls,
+        full_path: str | Path,
+        bitstring: Union[Tuple[int, ...], str, np.ndarray, List[int]],
+        energy: float,
+    ):
         bitstring = tuple([int(x) for x in bitstring])
-        df_save = pd.DataFrame(data={SNV.Bitstring.id_long: [bitstring],
-                                     SNV.Energy.id_long: [energy],
-                                     })
-        cls.write_results(data=df_save,
-                          full_path=full_path,
-                          format_type='dataframe')
+        df_save = pd.DataFrame(
+            data={
+                SNV.Bitstring.id_long: [bitstring],
+                SNV.Energy.id_long: [energy],
+            }
+        )
+        cls.write_results(data=df_save, full_path=full_path, format_type="dataframe")
 
     @classmethod
-    def _write_hamiltonian_solutions(cls,
-                                     file_path_main: str | Path,
-                                     known_energies_dict: dict, ):
+    def _write_hamiltonian_solutions(
+        cls,
+        file_path_main: str | Path,
+        known_energies_dict: dict,
+    ):
         file_path_main = str(file_path_main)
 
-        if 'spectrum' in known_energies_dict:
-            spectrum = known_energies_dict['spectrum']
+        if "spectrum" in known_energies_dict:
+            spectrum = known_energies_dict["spectrum"]
             if spectrum is not None:
                 file_path_spectrum = f"{file_path_main}{MKS}Spectrum"
-                with open(f"{file_path_spectrum}.txt", 'w') as file:
+                with open(f"{file_path_spectrum}.txt", "w") as file:
                     for eigenvalue in spectrum:
                         file_line = f"{eigenvalue}\n"
                         file.write(file_line)
-            del known_energies_dict['spectrum']
+            del known_energies_dict["spectrum"]
 
-        lowest_energy_state = known_energies_dict.get('lowest_energy_state', None)
-        lowest_energy = known_energies_dict.get('lowest_energy', None)
+        lowest_energy_state = known_energies_dict.get("lowest_energy_state", None)
+        lowest_energy = known_energies_dict.get("lowest_energy", None)
 
         file_path_known_solutions = f"{file_path_main}{MKS}KnownSolutions"
         if lowest_energy_state is not None:
             lowest_energy_state = tuple([int(x) for x in lowest_energy_state])
-            cls._write_single_solution(full_path=file_path_known_solutions,
-                                       bitstring=lowest_energy_state,
-                                       energy=lowest_energy)
+            cls._write_single_solution(
+                full_path=file_path_known_solutions,
+                bitstring=lowest_energy_state,
+                energy=lowest_energy,
+            )
 
-        highest_energy_state = known_energies_dict.get('highest_energy_state', None)
-        highest_energy = known_energies_dict.get('highest_energy', None)
+        highest_energy_state = known_energies_dict.get("highest_energy_state", None)
+        highest_energy = known_energies_dict.get("highest_energy", None)
         if highest_energy_state is not None:
             highest_energy_state = tuple([int(x) for x in highest_energy_state])
-            cls._write_single_solution(full_path=file_path_known_solutions,
-                                       bitstring=highest_energy_state,
-                                       energy=highest_energy)
+            cls._write_single_solution(
+                full_path=file_path_known_solutions,
+                bitstring=highest_energy_state,
+                energy=highest_energy,
+            )

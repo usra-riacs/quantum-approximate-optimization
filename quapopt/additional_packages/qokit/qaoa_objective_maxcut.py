@@ -3,15 +3,16 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
-import numpy as np
-import networkx as nx
+
 import warnings
 
-from .utils import precompute_energies
-from .maxcut import maxcut_obj, get_adjacency_matrix, get_maxcut_terms
+import networkx as nx
+import numpy as np
 
+from .maxcut import get_adjacency_matrix, get_maxcut_terms, maxcut_obj
 from .qaoa_circuit_maxcut import get_parameterized_qaoa_circuit
 from .qaoa_objective import get_qaoa_objective
+from .utils import precompute_energies
 
 
 def get_qaoa_maxcut_objective(

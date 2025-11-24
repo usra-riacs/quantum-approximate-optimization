@@ -2,33 +2,39 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 
-from typing import List, Tuple, Any, Optional
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 
-from quapopt.optimization.parameter_setting.non_adaptive_optimization import NonAdaptiveOptimizer
+from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
 from quapopt.optimization.parameter_setting import ParametersBoundType
+from quapopt.optimization.parameter_setting.non_adaptive_optimization import (
+    NonAdaptiveOptimizer,
+)
 
 
 class SimpleRandomOptimizer(NonAdaptiveOptimizer):
-    def __init__(self,
-                 parameter_bounds: List[Tuple[ParametersBoundType, Tuple[Any, ...]]],
-                 argument_names: List[str] = None,
-                 ):
+    def __init__(
+        self,
+        parameter_bounds: List[Tuple[ParametersBoundType, Tuple[Any, ...]]],
+        argument_names: List[str] = None,
+    ):
 
-        super().__init__(search_space=None,
-                         argument_names=argument_names,
-                         parameter_bounds=parameter_bounds)
+        super().__init__(
+            search_space=None,
+            argument_names=argument_names,
+            parameter_bounds=parameter_bounds,
+        )
 
-    def run_optimization(self,
-                         objective_function: callable,
-                         seed=None,
-                         number_of_trials: int = None,
-                         verbosity: int = 0,
-                         show_progress_bar: bool = False,
-                         ):
+    def run_optimization(
+        self,
+        objective_function: callable,
+        seed=None,
+        number_of_trials: int = None,
+        verbosity: int = 0,
+        show_progress_bar: bool = False,
+    ):
 
         numpy_rng = np.random.default_rng(seed=seed)
 
@@ -38,7 +44,9 @@ class SimpleRandomOptimizer(NonAdaptiveOptimizer):
 
             if bound_type == ParametersBoundType.RANGE:
                 min_value, max_value = bound_specs
-                random_samples = numpy_rng.uniform(min_value, max_value, number_of_trials)
+                random_samples = numpy_rng.uniform(
+                    min_value, max_value, number_of_trials
+                )
 
             elif bound_type == ParametersBoundType.SET:
                 if len(bound_specs) == 2:
@@ -51,70 +59,88 @@ class SimpleRandomOptimizer(NonAdaptiveOptimizer):
 
             elif bound_type == ParametersBoundType.CONSTANT:
                 if isinstance(bound_specs, list) or isinstance(bound_specs, tuple):
-                    assert len(bound_specs) == 1, "Fixed parameter should have only one value."
+                    assert (
+                        len(bound_specs) == 1
+                    ), "Fixed parameter should have only one value."
                     bound_specs = bound_specs[0]
                 random_samples = [bound_specs] * number_of_trials
             else:
-                raise ValueError('Unknown bound type.')
+                raise ValueError("Unknown bound type.")
             local_search_spaces.append(random_samples)
 
-        # search_space = list(itertools.product(*local_search_spaces))
         search_space = np.array(local_search_spaces).T
 
-        return super()._run_optimization(objective_function=objective_function,
-                                         number_of_function_calls=number_of_trials,
-                                         verbosity=verbosity,
-                                         show_progress_bar=show_progress_bar,
-                                         search_space=search_space)
+        return super()._run_optimization(
+            objective_function=objective_function,
+            number_of_function_calls=number_of_trials,
+            verbosity=verbosity,
+            show_progress_bar=show_progress_bar,
+            search_space=search_space,
+        )
 
 
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 from tqdm.notebook import tqdm
+
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
+    ClassicalHamiltonian,
+)
 
 
 class SimpleRandomBitstringSampler:
-    def __init__(self,
-                 hamiltonian: ClassicalHamiltonian,
-                 max_memory: int = int(6 * 10 ** 9),
-                 ):
+    def __init__(
+        self,
+        hamiltonian: ClassicalHamiltonian,
+        max_memory: int = int(6 * 10**9),
+    ):
 
         self._hamiltonian = hamiltonian
         self._number_of_qubits = self._hamiltonian.number_of_qubits
 
         if max(self._hamiltonian.localities) in [1, 2]:
-            self._hamiltonian_repr_eval = self._hamiltonian.get_adjacency_matrix(sparse=False,
-                                                                                 matrix_type='sym')
+            self._hamiltonian_repr_eval = self._hamiltonian.get_adjacency_matrix(
+                sparse=False, matrix_type="sym"
+            )
         else:
-            self._hamiltonian_repr_eval = self._hamiltonian.hamiltonian_list_representation
+            self._hamiltonian_repr_eval = (
+                self._hamiltonian.hamiltonian_list_representation
+            )
 
         self._max_memory = max_memory
 
-    def run_random_sampling(self,
-                            number_of_samples: int,
-                            seed: Optional[int] = None,
-                            show_progress_bar: bool = False,
-                            verbosity=0,
-                            return_all_samples: bool = False,
-                            ):
+    def run_random_sampling(
+        self,
+        number_of_samples: int,
+        seed: Optional[int] = None,
+        show_progress_bar: bool = False,
+        verbosity=0,
+        return_all_samples: bool = False,
+    ):
 
         numpy_rng = np.random.default_rng(seed=seed)
 
         total_number_of_bytes_bitstrings = number_of_samples * self._number_of_qubits
 
-        bitstrings_array_memory = total_number_of_bytes_bitstrings / 10 ** 9
+        bitstrings_array_memory = total_number_of_bytes_bitstrings / 10**9
         flipping_array_memory = 4 * bitstrings_array_memory
         needed_memory = flipping_array_memory + bitstrings_array_memory + 1
 
-        if needed_memory > self._max_memory / 10 ** 9:
+        if needed_memory > self._max_memory / 10**9:
             # This is the number we can afford to store in memory
             # I can allocate at most allowed_memory_per_batch memory at a time
             # I want to divide all trials into batches of size batch_size_bitstrings
             # (memory usage is batch_size_bitstrings*number_of_qubits_test*5 bytes)
             # this will be number of samples in a single batch.
-            batch_size_bitstrings = int(max([1, self._max_memory]) // self._number_of_qubits / 5)
+            batch_size_bitstrings = int(
+                max([1, self._max_memory]) // self._number_of_qubits / 5
+            )
             # HOW MANY BATCHES I WILL NEED? TOTAL NUMBER OF NEEDED BYTES DIVIDED BY THE MEMORY OF A SINGLE BATCH
             number_of_batches = int(
-                np.ceil(total_number_of_bytes_bitstrings / batch_size_bitstrings / self._number_of_qubits))
+                np.ceil(
+                    total_number_of_bytes_bitstrings
+                    / batch_size_bitstrings
+                    / self._number_of_qubits
+                )
+            )
 
             batch_sizes = [batch_size_bitstrings] * number_of_batches
             total_size = batch_size_bitstrings * number_of_batches
@@ -134,8 +160,10 @@ class SimpleRandomBitstringSampler:
             batch_sizes = [batch_size_bitstrings]
 
         def _evaluate_energy_function(bitstrings_array):
-            return em.calculate_energies_from_bitstrings(measurement_values=bitstrings_array,
-                                                         observable=self._hamiltonian.hamiltonian)
+            return em.calculate_energies_from_bitstrings(
+                measurement_values=bitstrings_array,
+                observable=self._hamiltonian.hamiltonian,
+            )
 
         if verbosity > 0:
             print(f"Number of batches: {number_of_batches}")
@@ -154,11 +182,17 @@ class SimpleRandomBitstringSampler:
         if lowest_energy is not None and highest_energy is not None:
             delta = highest_energy - lowest_energy
 
-        for counter in tqdm(list(range(number_of_batches)), disable=not show_progress_bar):
+        for counter in tqdm(
+            list(range(number_of_batches)), disable=not show_progress_bar
+        ):
             batch_size_i = batch_sizes[counter]
-            random_samples_i = numpy_rng.integers(0, 2, (batch_size_i, self._number_of_qubits))
+            random_samples_i = numpy_rng.integers(
+                0, 2, (batch_size_i, self._number_of_qubits)
+            )
 
-            random_energies_i = _evaluate_energy_function(bitstrings_array=random_samples_i)
+            random_energies_i = _evaluate_energy_function(
+                bitstrings_array=random_samples_i
+            )
 
             best_energy_index_i = np.argmin(random_energies_i)
             best_energy_i = random_energies_i[best_energy_index_i]
@@ -178,8 +212,12 @@ class SimpleRandomBitstringSampler:
 
         if return_all_samples:
             # number_of_batches = 1 so I can return all samples
-            df_samples = pd.DataFrame(data={'energy': random_energies_i,
-                                            'bitstring': random_samples_i.to_list()}, )
+            df_samples = pd.DataFrame(
+                data={
+                    "energy": random_energies_i,
+                    "bitstring": random_samples_i.to_list(),
+                },
+            )
             return (best_bitstring, best_energy), df_samples
 
         return (best_bitstring, best_energy), None

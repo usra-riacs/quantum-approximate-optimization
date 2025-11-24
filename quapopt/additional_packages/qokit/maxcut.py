@@ -5,9 +5,10 @@
 """
 Helper functions for the Maximum Cut (MaxCut) problem
 """
-from quapopt.additional_packages.qokit.fur.qaoa_simulator_base import TermsType
-import numpy as np
 import networkx as nx
+import numpy as np
+
+from quapopt.additional_packages.qokit.fur.qaoa_simulator_base import TermsType
 
 
 def maxcut_obj(x: np.ndarray, w: np.ndarray) -> float:
@@ -35,13 +36,15 @@ def get_maxcut_terms(G: nx.Graph) -> TermsType:
         terms to be used in the simulation
     """
     if nx.is_weighted(G):
-        terms = [(-float(G[u][v]["weight"]) / 2, (int(u), int(v))) for u, v, *_ in G.edges()]
+        terms = [
+            (-float(G[u][v]["weight"]) / 2, (int(u), int(v))) for u, v, *_ in G.edges()
+        ]
         total_w = sum([float(G[u][v]["weight"]) for u, v, *_ in G.edges()])
 
     else:
         terms = [(-(1 / 2), (int(e[0]), int(e[1]))) for e in G.edges()]
         total_w = int(G.number_of_edges())
-    N = G.number_of_nodes()
+    G.number_of_nodes()
     terms.append((+total_w / 2, tuple()))
     return terms
 

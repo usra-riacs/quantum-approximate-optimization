@@ -2,7 +2,6 @@
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
 
-
 """
 Code present here is used to map between different representations of 2-local Hamiltonians.
 The functions present here are used to map between the following representations:
@@ -46,12 +45,11 @@ from typing import List, Tuple, Union
 
 import numpy as np
 
-#Lazy monkey-patching of cupy
+# Lazy monkey-patching of cupy
 try:
     import cupy as cp
-except(ImportError,ModuleNotFoundError):
+except (ImportError, ModuleNotFoundError):
     import numpy as cp
-
 
 from enum import Enum
 
@@ -62,8 +60,10 @@ class ProblemFormulationType(Enum):
     MAXCUT = "MaxCut"
 
 
-def _calculate_maxcut_objective_direct(adjacency_matrix: Union[np.ndarray, cp.ndarray],
-                                       bitstrings_array: Union[np.ndarray, cp.ndarray]) -> List[float]:
+def _calculate_maxcut_objective_direct(
+    adjacency_matrix: Union[np.ndarray, cp.ndarray],
+    bitstrings_array: Union[np.ndarray, cp.ndarray],
+) -> List[float]:
     """
     This function calculates the MAXCUT objective directly from the adjacency matrix and the bitstrings.
 
@@ -78,14 +78,18 @@ def _calculate_maxcut_objective_direct(adjacency_matrix: Union[np.ndarray, cp.nd
         for u in range(adjacency_matrix.shape[0]):
             for v in range(u + 1, adjacency_matrix.shape[1]):
                 coeff = adjacency_matrix[u, v]
-                obj += coeff * (bitstring[u] + bitstring[v] - 2 * bitstring[u] * bitstring[v])
+                obj += coeff * (
+                    bitstring[u] + bitstring[v] - 2 * bitstring[u] * bitstring[v]
+                )
 
         objectives_list.append(obj)
     return objectives_list
 
 
-def _calculate_qubo_objective_direct(adjacency_matrix: Union[np.ndarray, cp.ndarray],
-                                     bitstrings_array: Union[np.ndarray, cp.ndarray]) -> List[float]:
+def _calculate_qubo_objective_direct(
+    adjacency_matrix: Union[np.ndarray, cp.ndarray],
+    bitstrings_array: Union[np.ndarray, cp.ndarray],
+) -> List[float]:
     """
     This function calculates the QUBO objective directly from the adjacency matrix and the bitstrings.
     :param adjacency_matrix: real symmetric
@@ -103,8 +107,10 @@ def _calculate_qubo_objective_direct(adjacency_matrix: Union[np.ndarray, cp.ndar
     return objectives_list
 
 
-def _calculate_ising_objective_direct(adjacency_matrix: Union[np.ndarray, cp.ndarray],
-                                      bitstrings_array: Union[np.ndarray, cp.ndarray]) -> List[float]:
+def _calculate_ising_objective_direct(
+    adjacency_matrix: Union[np.ndarray, cp.ndarray],
+    bitstrings_array: Union[np.ndarray, cp.ndarray],
+) -> List[float]:
     """
     This function calculates the ISING objective directly from the adjacency matrix and the bitstrings.
     :param adjacency_matrix: real symmetric
@@ -125,7 +131,9 @@ def _calculate_ising_objective_direct(adjacency_matrix: Union[np.ndarray, cp.nda
     return objectives_list
 
 
-def _map_maxcut_adjacency_to_ising(maxcut_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_maxcut_adjacency_to_ising(
+    maxcut_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the MAXCUT adjacency matrix to the ISING adjacency matrix.
     # ASSUMING MAXCUT CORRESPONDS TO MAXIMIZATION
@@ -141,7 +149,9 @@ def _map_maxcut_adjacency_to_ising(maxcut_adjacency: Union[np.ndarray, cp.ndarra
     return maxcut_adjacency.copy()
 
 
-def _map_maxcut_adjacency_to_qubo(maxcut_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_maxcut_adjacency_to_qubo(
+    maxcut_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the MAXCUT adjacency matrix to the QUBO adjacency matrix.
     # ASSUMING MAXCUT CORRESPONDS TO MAXIMIZATION
@@ -163,7 +173,9 @@ def _map_maxcut_adjacency_to_qubo(maxcut_adjacency: Union[np.ndarray, cp.ndarray
     return qubo_adjacency
 
 
-def _map_qubo_adjacency_to_maxcut(qubo_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_qubo_adjacency_to_maxcut(
+    qubo_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the QUBO adjacency matrix to the MAXCUT adjacency matrix.
     # ASSUMING MAXCUT CORRESPONDS TO MAXIMIZATION
@@ -183,9 +195,9 @@ def _map_qubo_adjacency_to_maxcut(qubo_adjacency: Union[np.ndarray, cp.ndarray])
         raise ValueError("Input should be either a numpy or cupy array")
 
     number_of_nodes_qubo = qubo_adjacency.shape[0]
-    maxcut_adjacency = bck.pad(-qubo_adjacency,
-                               pad_width=((0, 1), (0, 1)),
-                               mode='constant')
+    maxcut_adjacency = bck.pad(
+        -qubo_adjacency, pad_width=((0, 1), (0, 1)), mode="constant"
+    )
     bck.fill_diagonal(maxcut_adjacency, 0)
     couplings_sums = bck.sum(qubo_adjacency, axis=1) + bck.diag(qubo_adjacency)
 
@@ -195,7 +207,9 @@ def _map_qubo_adjacency_to_maxcut(qubo_adjacency: Union[np.ndarray, cp.ndarray])
     return maxcut_adjacency
 
 
-def _map_qubo_adjacency_to_ising(qubo_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_qubo_adjacency_to_ising(
+    qubo_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the QUBO adjacency matrix to the ISING adjacency matrix.
     # ASSUMING ISING CORRESPONDS TO MINIMIZATION
@@ -213,12 +227,16 @@ def _map_qubo_adjacency_to_ising(qubo_adjacency: Union[np.ndarray, cp.ndarray]) 
         raise ValueError("Input should be either a numpy or cupy array")
 
     ising_adjacency = -1 * qubo_adjacency
-    bck.fill_diagonal(ising_adjacency, bck.sum(qubo_adjacency, axis=1) + bck.diag(qubo_adjacency))
+    bck.fill_diagonal(
+        ising_adjacency, bck.sum(qubo_adjacency, axis=1) + bck.diag(qubo_adjacency)
+    )
 
     return ising_adjacency
 
 
-def _map_ising_adjacency_to_qubo(ising_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_ising_adjacency_to_qubo(
+    ising_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the ISING adjacency matrix to the QUBO adjacency matrix.
     # ASSUMING ISING CORRESPONDS TO MINIMIZATION
@@ -241,7 +259,9 @@ def _map_ising_adjacency_to_qubo(ising_adjacency: Union[np.ndarray, cp.ndarray])
     return qubo_adjacency
 
 
-def _map_ising_adjacency_to_maxcut(ising_adjacency: Union[np.ndarray, cp.ndarray]) -> Union[np.ndarray, cp.ndarray]:
+def _map_ising_adjacency_to_maxcut(
+    ising_adjacency: Union[np.ndarray, cp.ndarray],
+) -> Union[np.ndarray, cp.ndarray]:
     """
     This function maps the ISING adjacency matrix to the MAXCUT adjacency matrix.
     # ASSUMING ISING CORRESPONDS TO MINIMIZATION
@@ -259,11 +279,11 @@ def _map_ising_adjacency_to_maxcut(ising_adjacency: Union[np.ndarray, cp.ndarray
     else:
         raise ValueError("Input should be either a numpy or cupy array")
 
-    #TODO(FBM): why is this doubled?
+    # TODO(FBM): why is this doubled?
     double_ising = 2 * ising_adjacency
-    maxcut_adjacency = bck.pad(double_ising,
-                               pad_width=((0, 1), (0, 1)),
-                               mode='constant')
+    maxcut_adjacency = bck.pad(
+        double_ising, pad_width=((0, 1), (0, 1)), mode="constant"
+    )
     bck.fill_diagonal(maxcut_adjacency, 0)
 
     local_fields_ising = bck.diag(double_ising)
@@ -275,8 +295,9 @@ def _map_ising_adjacency_to_maxcut(ising_adjacency: Union[np.ndarray, cp.ndarray
     return maxcut_adjacency
 
 
-def map_maxcut_solution_to_qubo(bitstring: Union[List[int], Tuple[int, ...], np.ndarray],
-                                pm_input: bool = False) -> Tuple[int, ...]:
+def map_maxcut_solution_to_qubo(
+    bitstring: Union[List[int], Tuple[int, ...], np.ndarray], pm_input: bool = False
+) -> Tuple[int, ...]:
     """
     This function maps the MAXCUT solution to the QUBO solution, assuming that the original QUBO was mapped to MAXCUT.
 
@@ -287,17 +308,23 @@ def map_maxcut_solution_to_qubo(bitstring: Union[List[int], Tuple[int, ...], np.
 
     bts_pm = bitstring
     if not pm_input:
-        assert not -1 in bitstring, "bitstring should be in {0,1} not {-1,1} if pm_input is False"
+        assert (
+            not -1 in bitstring
+        ), "bitstring should be in {0,1} not {-1,1} if pm_input is False"
         bts_pm = [1 - 2 * x for x in bitstring]
     else:
-        assert 0 not in bitstring, "bitstring should be in {-1,1} not {0,1} if pm_input is True"
+        assert (
+            0 not in bitstring
+        ), "bitstring should be in {-1,1} not {0,1} if pm_input is True"
 
-    return tuple([int(1 / 2 * (1 - bts_pm[i] * bts_pm[-1])) for i in range(len(bts_pm) - 1)])
+    return tuple(
+        [int(1 / 2 * (1 - bts_pm[i] * bts_pm[-1])) for i in range(len(bts_pm) - 1)]
+    )
 
 
-
-
-def map_maxcut_solution_to_ising(bitstring: Union[List[int], Tuple[int, ...], np.ndarray], ):
+def map_maxcut_solution_to_ising(
+    bitstring: Union[List[int], Tuple[int, ...], np.ndarray],
+):
     """
     This function maps the MAXCUT solution to the ISING solution, assuming that the original ISING was mapped to MAXCUT.
     (so it reduces the dimension by one qubit).
@@ -305,19 +332,20 @@ def map_maxcut_solution_to_ising(bitstring: Union[List[int], Tuple[int, ...], np
     :param bitstring: N-dimensional 0s and 1s vector
     :return: output bitstring: (N-1)-dimensional 0s and 1s vector
     """
-    #TODO(FBM): add version that does this for many bitstrings at once efficiently
-    if bitstring[-1]==0:
-        return bitstring[0:len(bitstring)-1]
+    # TODO(FBM): add version that does this for many bitstrings at once efficiently
+    if bitstring[-1] == 0:
+        return bitstring[0 : len(bitstring) - 1]
     else:
-        if isinstance(bitstring, (np.ndarray,cp.ndarray)):
-            return 1- bitstring[0:len(bitstring)-1]
-        return [1-x for x in bitstring[0:len(bitstring)-1]]
+        if isinstance(bitstring, (np.ndarray, cp.ndarray)):
+            return 1 - bitstring[0 : len(bitstring) - 1]
+        return [1 - x for x in bitstring[0 : len(bitstring) - 1]]
 
 
-
-def map_adjacency_between_formulations(input_adjacency: Union[np.ndarray, cp.ndarray],
-                                       input_formulation: ProblemFormulationType,
-                                       output_formulation: ProblemFormulationType):
+def map_adjacency_between_formulations(
+    input_adjacency: Union[np.ndarray, cp.ndarray],
+    input_formulation: ProblemFormulationType,
+    output_formulation: ProblemFormulationType,
+):
     """
     This function maps the input adjacency matrix from one representation to another.
     :param input_adjacency:
@@ -335,7 +363,9 @@ def map_adjacency_between_formulations(input_adjacency: Union[np.ndarray, cp.nda
         elif output_formulation == ProblemFormulationType.QUBO:
             return _map_ising_adjacency_to_qubo(input_adjacency)
         else:
-            raise ValueError("Output representation should be either 'MAXCUT' or 'QUBO'")
+            raise ValueError(
+                "Output representation should be either 'MAXCUT' or 'QUBO'"
+            )
 
     elif input_formulation == ProblemFormulationType.MAXCUT:
         if output_formulation == ProblemFormulationType.ISING:
@@ -351,18 +381,23 @@ def map_adjacency_between_formulations(input_adjacency: Union[np.ndarray, cp.nda
         elif output_formulation == ProblemFormulationType.MAXCUT:
             return _map_qubo_adjacency_to_maxcut(input_adjacency)
         else:
-            raise ValueError("Output representation should be either 'ISING' or 'MAXCUT'")
+            raise ValueError(
+                "Output representation should be either 'ISING' or 'MAXCUT'"
+            )
 
     else:
-        raise ValueError("Input representation should be either 'ISING', 'MAXCUT' or 'QUBO'")
+        raise ValueError(
+            "Input representation should be either 'ISING', 'MAXCUT' or 'QUBO'"
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # TODO(FBM): should add proper tests
     import itertools
-    import numpy as np
-    from quapopt import ancillary_functions as anf
 
+    import numpy as np
+
+    from quapopt import ancillary_functions as anf
 
     noq_test = 9
 
@@ -377,28 +412,32 @@ if __name__ == '__main__':
         # define base matrices:
         test_ISING_matrix = rng_test.uniform(-5, 5, (noq_test, noq_test))
         test_ISING_matrix = 0.5 * (test_ISING_matrix + test_ISING_matrix.T)
-        # np.fill_diagonal(test_ISING_matrix,noq_test*2)
 
         test_QUBO_matrix = rng_test.uniform(-5, 5, (noq_test, noq_test))
         test_QUBO_matrix = 0.5 * (test_QUBO_matrix + test_QUBO_matrix.T)
-        # np.fill_diagonal(test_QUBO_matrix,0)
 
         test_MAXCUT_matrix = rng_test.uniform(-5, 5, (noq_test, noq_test))
         test_MAXCUT_matrix = 0.5 * (test_MAXCUT_matrix + test_MAXCUT_matrix.T)
         np.fill_diagonal(test_MAXCUT_matrix, 0)
 
-        base_matrices = {ProblemFormulationType.QUBO: test_QUBO_matrix,
-                         ProblemFormulationType.ISING: test_ISING_matrix,
-                         ProblemFormulationType.MAXCUT: test_MAXCUT_matrix}
+        base_matrices = {
+            ProblemFormulationType.QUBO: test_QUBO_matrix,
+            ProblemFormulationType.ISING: test_ISING_matrix,
+            ProblemFormulationType.MAXCUT: test_MAXCUT_matrix,
+        }
 
         mapped_matrices = {}
         for input_matrix_name in ProblemFormulationType:
             for output_matrix_name in ProblemFormulationType:
                 input_matrix = base_matrices[input_matrix_name]
-                output_matrix = map_adjacency_between_formulations(input_adjacency=input_matrix,
-                                                                   input_formulation=input_matrix_name,
-                                                                   output_formulation=output_matrix_name)
-                mapped_matrices[f"{input_matrix_name} --> {output_matrix_name}"] = output_matrix
+                output_matrix = map_adjacency_between_formulations(
+                    input_adjacency=input_matrix,
+                    input_formulation=input_matrix_name,
+                    output_formulation=output_matrix_name,
+                )
+                mapped_matrices[f"{input_matrix_name} --> {output_matrix_name}"] = (
+                    output_matrix
+                )
 
         for input_matrix_name in ProblemFormulationType:
 
@@ -406,47 +445,73 @@ if __name__ == '__main__':
             if input_matrix_name == ProblemFormulationType.ISING:
                 # energies_bruteforce = em2.calculate_energies_from_bitstrings_2_local(bitstrings_array=all_bitstrings_n,
                 #                                                          weights_matrix=input_matrix)
-                energies_bruteforce = _calculate_ising_objective_direct(adjacency_matrix=input_matrix,
-                                                                        bitstrings_array=all_bitstrings_n)
+                energies_bruteforce = _calculate_ising_objective_direct(
+                    adjacency_matrix=input_matrix, bitstrings_array=all_bitstrings_n
+                )
 
             elif input_matrix_name == ProblemFormulationType.QUBO:
-                energies_bruteforce = _calculate_qubo_objective_direct(bitstrings_array=all_bitstrings_n,
-                                                                       adjacency_matrix=input_matrix, )
+                energies_bruteforce = _calculate_qubo_objective_direct(
+                    bitstrings_array=all_bitstrings_n,
+                    adjacency_matrix=input_matrix,
+                )
             elif input_matrix_name == ProblemFormulationType.MAXCUT:
-                energies_bruteforce = _calculate_maxcut_objective_direct(bitstrings_array=all_bitstrings_n,
-                                                                         adjacency_matrix=input_matrix, )
+                energies_bruteforce = _calculate_maxcut_objective_direct(
+                    bitstrings_array=all_bitstrings_n,
+                    adjacency_matrix=input_matrix,
+                )
             else:
-                raise ValueError("Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT'")
+                raise ValueError(
+                    "Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT'"
+                )
 
             if input_matrix_name in [ProblemFormulationType.ISING]:
                 best_energy_index = np.argmin(energies_bruteforce)
                 best_bitstring_input = all_bitstrings_n[best_energy_index]
                 best_energy_input = energies_bruteforce[best_energy_index]
-            elif input_matrix_name in [ProblemFormulationType.QUBO, ProblemFormulationType.MAXCUT]:
+            elif input_matrix_name in [
+                ProblemFormulationType.QUBO,
+                ProblemFormulationType.MAXCUT,
+            ]:
                 best_energy_index = np.argmax(energies_bruteforce)
                 best_bitstring_input = all_bitstrings_n[best_energy_index]
                 best_energy_input = energies_bruteforce[best_energy_index]
             else:
-                raise ValueError("Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT")
+                raise ValueError(
+                    "Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT"
+                )
 
             best_found_solutions = {
-                f"{input_matrix_name} (ORIGINAL) (BRUTEFORCE)": (best_bitstring_input, best_energy_input)}
+                f"{input_matrix_name} (ORIGINAL) (BRUTEFORCE)": (
+                    best_bitstring_input,
+                    best_energy_input,
+                )
+            }
             for output_matrix_name in ProblemFormulationType:
-                output_matrix = mapped_matrices[f"{input_matrix_name} --> {output_matrix_name}"]
+                output_matrix = mapped_matrices[
+                    f"{input_matrix_name} --> {output_matrix_name}"
+                ]
                 if output_matrix_name == ProblemFormulationType.ISING:
                     # energies_mapped = em2.calculate_energies_from_bitstrings_2_local(bitstrings_array=all_bitstrings_n,
                     #                                                                 weights_matrix=output_matrix)
-                    energies_mapped = _calculate_ising_objective_direct(adjacency_matrix=output_matrix,
-                                                                        bitstrings_array=all_bitstrings_n)
+                    energies_mapped = _calculate_ising_objective_direct(
+                        adjacency_matrix=output_matrix,
+                        bitstrings_array=all_bitstrings_n,
+                    )
 
                 elif output_matrix_name == ProblemFormulationType.QUBO:
-                    energies_mapped = _calculate_qubo_objective_direct(adjacency_matrix=output_matrix,
-                                                                       bitstrings_array=all_bitstrings_n)
+                    energies_mapped = _calculate_qubo_objective_direct(
+                        adjacency_matrix=output_matrix,
+                        bitstrings_array=all_bitstrings_n,
+                    )
                 elif output_matrix_name == ProblemFormulationType.MAXCUT:
-                    energies_mapped = _calculate_maxcut_objective_direct(adjacency_matrix=output_matrix,
-                                                                         bitstrings_array=all_bitstrings_np)
+                    energies_mapped = _calculate_maxcut_objective_direct(
+                        adjacency_matrix=output_matrix,
+                        bitstrings_array=all_bitstrings_np,
+                    )
                 else:
-                    raise ValueError("Output matrix name should be either 'ISING', 'QUBO' or 'MAXCUT'")
+                    raise ValueError(
+                        "Output matrix name should be either 'ISING', 'QUBO' or 'MAXCUT'"
+                    )
 
                 if output_matrix_name in [ProblemFormulationType.ISING]:
                     best_energy_index = np.argmin(energies_mapped)
@@ -458,45 +523,62 @@ if __name__ == '__main__':
                     best_energy_index = np.argmax(energies_mapped)
                     best_bitstring_output_raw = all_bitstrings_np[best_energy_index]
                     if input_matrix_name == ProblemFormulationType.ISING:
-                        best_bitstring_output = map_maxcut_solution_to_ising(bitstring=best_bitstring_output_raw)
+                        best_bitstring_output = map_maxcut_solution_to_ising(
+                            bitstring=best_bitstring_output_raw
+                        )
                     elif input_matrix_name == ProblemFormulationType.QUBO:
-                        best_bitstring_output = map_maxcut_solution_to_qubo(bitstring=best_bitstring_output_raw)
+                        best_bitstring_output = map_maxcut_solution_to_qubo(
+                            bitstring=best_bitstring_output_raw
+                        )
                     else:
                         best_bitstring_output = best_bitstring_output_raw
                 else:
-                    raise ValueError("Output matrix name should be either 'ISING', 'QUBO' or 'MAXCUT")
+                    raise ValueError(
+                        "Output matrix name should be either 'ISING', 'QUBO' or 'MAXCUT"
+                    )
 
                 if input_matrix_name in [ProblemFormulationType.ISING]:
                     # best_energy_output = em2.calculate_energies_from_bitstrings_2_local(bitstrings_array=[best_bitstring_output],
                     #                                                         weights_matrix=input_matrix)[0]
-                    best_energy_output = _calculate_ising_objective_direct(adjacency_matrix=input_matrix,
-                                                                           bitstrings_array=[best_bitstring_output])[0]
+                    best_energy_output = _calculate_ising_objective_direct(
+                        adjacency_matrix=input_matrix,
+                        bitstrings_array=[best_bitstring_output],
+                    )[0]
                 elif input_matrix_name in [ProblemFormulationType.QUBO]:
-                    best_energy_output = _calculate_qubo_objective_direct(adjacency_matrix=input_matrix,
-                                                                          bitstrings_array=[best_bitstring_output])[0]
+                    best_energy_output = _calculate_qubo_objective_direct(
+                        adjacency_matrix=input_matrix,
+                        bitstrings_array=[best_bitstring_output],
+                    )[0]
                 elif input_matrix_name in [ProblemFormulationType.MAXCUT]:
-                    best_energy_output = _calculate_maxcut_objective_direct(adjacency_matrix=input_matrix,
-                                                                            bitstrings_array=[best_bitstring_output])[0]
+                    best_energy_output = _calculate_maxcut_objective_direct(
+                        adjacency_matrix=input_matrix,
+                        bitstrings_array=[best_bitstring_output],
+                    )[0]
                 else:
-                    raise ValueError("Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT")
+                    raise ValueError(
+                        "Input matrix name should be either 'ISING', 'QUBO' or 'MAXCUT"
+                    )
 
-                best_found_solutions[f"{input_matrix_name}->{output_matrix_name} (BRUTEFORCE)"] = (
-                    best_bitstring_output, best_energy_output)
+                best_found_solutions[
+                    f"{input_matrix_name}->{output_matrix_name} (BRUTEFORCE)"
+                ] = (best_bitstring_output, best_energy_output)
 
             all_energies = [x[1] for x in best_found_solutions.values()]
 
-            correct = np.allclose(all_energies,
-                                  all_energies[0])
+            correct = np.allclose(all_energies, all_energies[0])
 
             if correct:
                 pass
             else:
-                anf.cool_print("FAILED TEST:", f"{input_matrix_name}-->ALL (BRUTEFORCE)-{seed_test}", 'red')
+                anf.cool_print(
+                    "FAILED TEST:",
+                    f"{input_matrix_name}-->ALL (BRUTEFORCE)-{seed_test}",
+                    "red",
+                )
                 for key, value in best_found_solutions.items():
                     print(key)
                     print(value)
                     print()
                 raise KeyboardInterrupt
 
-        # raise ValueError("STOP")
-    anf.cool_print("ALL TESTS PASSED", '', 'green')
+    anf.cool_print("ALL TESTS PASSED", "", "green")

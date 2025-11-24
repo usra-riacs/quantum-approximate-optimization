@@ -3,8 +3,12 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 import math
+
 import numba.cuda
-from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import _GLOBAL_GRID_SIZE
+
+from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import (
+    _GLOBAL_GRID_SIZE,
+)
 
 
 @numba.cuda.jit

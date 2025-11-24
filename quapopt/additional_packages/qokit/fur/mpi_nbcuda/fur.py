@@ -8,7 +8,9 @@ from ..nbcuda.fur import furx as furx_local
 
 def furx_all(x, theta: float, n_local_qubits: int, n_all_qubits: int, comm):
     assert n_local_qubits <= n_all_qubits
-    assert n_all_qubits <= 2 * n_local_qubits, "n_all_qubits > 2*n_local_qubits is not yet implemented"
+    assert (
+        n_all_qubits <= 2 * n_local_qubits
+    ), "n_all_qubits > 2*n_local_qubits is not yet implemented"
 
     for i in range(n_local_qubits):
         furx_local(x, theta, i)

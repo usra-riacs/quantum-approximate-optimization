@@ -3,14 +3,15 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
+
 from collections.abc import Sequence
+
 import numpy as np
 
-from ..qaoa_simulator_base import QAOAFastSimulatorBase, CostsType, TermsType, ParamType
 from ..diagonal_precomputation import precompute_vectorized_cpu_parallel
-
-from .gates import ComplexArray
+from ..qaoa_simulator_base import CostsType, ParamType, QAOAFastSimulatorBase, TermsType
 from . import csim
+from .gates import ComplexArray
 
 
 class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
@@ -32,7 +33,13 @@ class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
             np.zeros(self.n_states, dtype="float"),
         )
 
-    def _apply_qaoa(self, sv: ComplexArray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self,
+        sv: ComplexArray,
+        gammas: Sequence[float],
+        betas: Sequence[float],
+        **kwargs,
+    ):
         raise NotImplementedError
 
     def simulate_qaoa(
@@ -42,7 +49,11 @@ class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
         sv0: np.ndarray | None = None,
         **kwargs,
     ) -> ComplexArray:
-        sv = ComplexArray(sv0.real.astype("float"), sv0.imag.astype("float")) if sv0 is not None else self.default_sv0
+        sv = (
+            ComplexArray(sv0.real.astype("float"), sv0.imag.astype("float"))
+            if sv0 is not None
+            else self.default_sv0
+        )
         self._apply_qaoa(sv, list(gammas), list(betas), **kwargs)
         return sv
 
@@ -52,7 +63,13 @@ class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
     def get_probabilities(self, result: ComplexArray, **kwargs) -> np.ndarray:
         return result.get_norm_squared()
 
-    def get_expectation(self, result: ComplexArray, costs: np.ndarray | None = None, optimization_type="min", **kwargs) -> float:
+    def get_expectation(
+        self,
+        result: ComplexArray,
+        costs: np.ndarray | None = None,
+        optimization_type="min",
+        **kwargs,
+    ) -> float:
         if costs is None:
             costs = self._hc_diag
         if optimization_type == "max":
@@ -60,7 +77,12 @@ class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
         return np.dot(costs, self.get_probabilities(result, **kwargs))
 
     def get_overlap(
-        self, result: ComplexArray, costs: CostsType | None = None, indices: np.ndarray | Sequence[int] | None = None, optimization_type="min", **kwargs
+        self,
+        result: ComplexArray,
+        costs: CostsType | None = None,
+        indices: np.ndarray | Sequence[int] | None = None,
+        optimization_type="min",
+        **kwargs,
     ) -> float:
         """
         Compute the overlap between the statevector and the ground state
@@ -86,7 +108,13 @@ class QAOAFastSimulatorCBase(QAOAFastSimulatorBase):
 
 
 class QAOAFURXSimulatorC(QAOAFastSimulatorCBase):
-    def _apply_qaoa(self, sv: ComplexArray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self,
+        sv: ComplexArray,
+        gammas: Sequence[float],
+        betas: Sequence[float],
+        **kwargs,
+    ):
         csim.apply_qaoa_furx(
             sv.real,
             sv.imag,
@@ -98,7 +126,13 @@ class QAOAFURXSimulatorC(QAOAFastSimulatorCBase):
 
 
 class QAOAFURXYRingSimulatorC(QAOAFastSimulatorCBase):
-    def _apply_qaoa(self, sv: ComplexArray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self,
+        sv: ComplexArray,
+        gammas: Sequence[float],
+        betas: Sequence[float],
+        **kwargs,
+    ):
         n_trotters = kwargs.get("n_trotters", 1)
         csim.apply_qaoa_furxy_ring(
             sv.real,
@@ -112,7 +146,13 @@ class QAOAFURXYRingSimulatorC(QAOAFastSimulatorCBase):
 
 
 class QAOAFURXYCompleteSimulatorC(QAOAFastSimulatorCBase):
-    def _apply_qaoa(self, sv: ComplexArray, gammas: Sequence[float], betas: Sequence[float], **kwargs):
+    def _apply_qaoa(
+        self,
+        sv: ComplexArray,
+        gammas: Sequence[float],
+        betas: Sequence[float],
+        **kwargs,
+    ):
         n_trotters = kwargs.get("n_trotters", 1)
         csim.apply_qaoa_furxy_complete(
             sv.real,

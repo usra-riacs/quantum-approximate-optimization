@@ -3,6 +3,7 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 import numpy as np
+
 from ..python.utils import get_complex_array
 from . import fur
 

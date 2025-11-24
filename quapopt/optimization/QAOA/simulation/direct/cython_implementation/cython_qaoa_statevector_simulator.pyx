@@ -13,9 +13,10 @@ Use, duplication, or disclosure without authors' permission is strictly prohibit
 """
 
 import numpy as np
+
 cimport numpy as np
-from libc.math cimport cos, sin, exp
-from libc.stdlib cimport malloc, free
+from libc.math cimport cos, exp, sin
+from libc.stdlib cimport free, malloc
 
 # Type definitions for clarity
 ctypedef double complex complex128

@@ -3,8 +3,9 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 import numpy as np
-from .utils import get_complex_array
+
 from . import fur
+from .utils import get_complex_array
 
 
 def furx(sv: np.ndarray, theta: float, q: int) -> np.ndarray:

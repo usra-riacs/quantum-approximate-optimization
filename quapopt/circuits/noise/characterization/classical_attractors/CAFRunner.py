@@ -1,37 +1,40 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-from typing import List, Optional, Tuple, Any
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from quapopt.circuits.gates import AbstractProgramGateBuilder, AbstractCircuit
+from quapopt.circuits.gates import AbstractCircuit, AbstractProgramGateBuilder
 from quapopt.circuits.noise.characterization.measurements.DDOT import DDOTRunner
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
+    ClassicalHamiltonian,
+)
 
 try:
     import cupy as cp
-except(ImportError, ModuleNotFoundError):
+except (ImportError, ModuleNotFoundError):
     import numpy as cp
 
-from quapopt.data_analysis.data_handling import (STANDARD_NAMES_DATA_TYPES as SNDT)
-
-from quapopt.data_analysis.data_handling.io_utilities.results_logging import LoggingLevel
-from quapopt import ancillary_functions as anf
-
-from quapopt.optimization.QAOA import PhaseSeparatorType, MixerType
-
-from quapopt.data_analysis.data_handling import (STANDARD_NAMES_VARIABLES as SNV)
 from qiskit.transpiler.passmanager import StagedPassManager
-from quapopt.circuits import backend_utilities as bck_utils
-from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit
-from quapopt.circuits.gates.gate_delays import DelaySchedulerBase, add_delays_to_circuit_layers
 
-from quapopt.circuits.noise.characterization.classical_attractors import (MirrorCircuitType,
-                                                                          MirrorCircuitSpecification,
-                                                                          _standardized_table_name_CAF,
-                                                                          get_CAF_standardized_folder_hierarchy_depreciated)
+from quapopt.circuits import backend_utilities as bck_utils
+from quapopt.circuits.gates.gate_delays import (
+    DelaySchedulerBase,
+    add_delays_to_circuit_layers,
+)
+from quapopt.circuits.noise.characterization.classical_attractors import (
+    MirrorCircuitSpecification,
+    MirrorCircuitType,
+    _standardized_table_name_CAF,
+)
+from quapopt.data_analysis.data_handling import STANDARD_NAMES_DATA_TYPES as SNDT
+from quapopt.data_analysis.data_handling.io_utilities.results_logging import (
+    LoggingLevel,
+)
+from quapopt.optimization.QAOA import MixerType, PhaseSeparatorType
+from quapopt.optimization.QAOA.circuits import MappedAnsatzCircuit
 
 
 class CAFRunner(DDOTRunner):
@@ -44,99 +47,109 @@ class CAFRunner(DDOTRunner):
     2. Random X gates with a mirror circuit and various delays.
     """
 
-    def __init__(self,
-                 number_of_qubits: int,
-                 program_gate_builder: AbstractProgramGateBuilder,
-                 mirror_circuit_specification: MirrorCircuitSpecification,
-                 sdk_name: str,
-                 simulation:bool,
-                 numpy_rng_seed: int = None,
-                 results_logger_kwargs: Optional[dict] = None,
-                 logging_level: LoggingLevel = LoggingLevel.DETAILED,
-                 pass_manager_qiskit_indices: StagedPassManager = None,
-                 qubit_indices_physical: Optional[List[int] | Tuple[int, ...]] = None,
-                 number_of_qubits_device_qiskit: int = None,
+    def __init__(
+        self,
+        number_of_qubits: int,
+        program_gate_builder: AbstractProgramGateBuilder,
+        mirror_circuit_specification: MirrorCircuitSpecification,
+        sdk_name: str,
+        simulation: bool,
+        numpy_rng_seed: int = None,
+        results_logger_kwargs: Optional[dict] = None,
+        logging_level: LoggingLevel = LoggingLevel.DETAILED,
+        pass_manager_qiskit_indices: StagedPassManager = None,
+        qubit_indices_physical: Optional[List[int] | Tuple[int, ...]] = None,
+        number_of_qubits_device_qiskit: int = None,
+        # qiskit-specific kwargs
+        mock_context_manager_if_simulated: bool = True,
+        session_ibm=None,
+        qiskit_sampler_options: Optional[dict] = None,
+        noiseless_simulation: bool = False,
+        qiskit_backend=None,
+    ):
 
-                 # qiskit-specific kwargs
-                 mock_context_manager_if_simulated: bool = True,
-                 session_ibm=None,
-                 qiskit_sampler_options: Optional[dict] = None,
-                 noiseless_simulation: bool = False,
-                qiskit_backend=None
+        # TODO(FBM): add automated, modernized metadata managment
 
-                 ):
-
-        #TODO(FBM): add automated, modernized metadata managment
-
-        if sdk_name.lower() in ['qiskit']:
-            assert qiskit_backend is not None, "For Qiskit SDK, you need to provide a qiskit_backend."
+        if sdk_name.lower() in ["qiskit"]:
+            assert (
+                qiskit_backend is not None
+            ), "For Qiskit SDK, you need to provide a qiskit_backend."
 
         if logging_level is not None and logging_level != LoggingLevel.NONE:
             if results_logger_kwargs is None:
-                #TODO(FBM): add defaults
-                raise NotImplementedError("To use logging, you need to provide results_logger_kwargs.")
+                # TODO(FBM): add defaults
+                raise NotImplementedError(
+                    "To use logging, you need to provide results_logger_kwargs."
+                )
 
         mcs = mirror_circuit_specification.copy()
 
         if mcs.fixed_ansatz is None:
             mc_type = mirror_circuit_specification.mirror_circuit_type
 
-            if mc_type in [MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK, MirrorCircuitType.QAOA_FULLY_CONNECTED]:
-                fixed_ansatz = CAFRunner.get_qaoa_ansatz_custom(phase_hamiltonian=mcs.phase_hamiltonian_qaoa,
-                                                                program_gate_builder=program_gate_builder,
-                                                                ansatz_kwargs=mcs.mirror_circuit_ansatz_kwargs,
-                                                                use_linear_swap_network=mc_type == MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
-                                                                qubit_indices_physical=qubit_indices_physical)
+            if mc_type in [
+                MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+                MirrorCircuitType.QAOA_FULLY_CONNECTED,
+            ]:
+                fixed_ansatz = CAFRunner.get_qaoa_ansatz_custom(
+                    phase_hamiltonian=mcs.phase_hamiltonian_qaoa,
+                    program_gate_builder=program_gate_builder,
+                    ansatz_kwargs=mcs.mirror_circuit_ansatz_kwargs,
+                    use_linear_swap_network=mc_type
+                    == MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+                    qubit_indices_physical=qubit_indices_physical,
+                )
             elif mc_type == MirrorCircuitType.QAOA_SABRE:
-                fixed_ansatz = CAFRunner.get_qaoa_ansatz_qiskit_router(phase_hamiltonian=mcs.phase_hamiltonian_qaoa,
-                                                                       qiskit_pass_manager=mcs.pass_manager_mirror_circuit,
-                                                                       ansatz_kwargs=mcs.mirror_circuit_ansatz_kwargs,
-                                                                       #assert_no_ancilla_qubits=False
-                                                                       )
+                fixed_ansatz = CAFRunner.get_qaoa_ansatz_qiskit_router(
+                    phase_hamiltonian=mcs.phase_hamiltonian_qaoa,
+                    qiskit_pass_manager=mcs.pass_manager_mirror_circuit,
+                    ansatz_kwargs=mcs.mirror_circuit_ansatz_kwargs,
+                )
                 if qubit_indices_physical is not None:
                     print(
-                        "Warning: qubit_indices_physical is provided, but it will be ignored for the SABRE circuit type. ")
-                qubit_indices_physical = bck_utils.get_nontrivial_physical_indices_from_circuit(
-                    quantum_circuit=fixed_ansatz.quantum_circuit,
-                filter_ancillas=True)
+                        "Warning: qubit_indices_physical is provided, but it will be ignored for the SABRE circuit type. "
+                    )
+                qubit_indices_physical = (
+                    bck_utils.get_nontrivial_physical_indices_from_circuit(
+                        quantum_circuit=fixed_ansatz.quantum_circuit,
+                        filter_ancillas=True,
+                    )
+                )
 
-
-                print("PHYSICAL QUBIT INDICES:",qubit_indices_physical)
-                print("Number of qubits:",len(qubit_indices_physical))
-                print("Expected:",number_of_qubits)
-
+                print("PHYSICAL QUBIT INDICES:", qubit_indices_physical)
+                print("Number of qubits:", len(qubit_indices_physical))
+                print("Expected:", number_of_qubits)
 
             else:
-                raise NotImplementedError(f"Mirror circuit type {mc_type} is not implemented.")
+                raise NotImplementedError(
+                    f"Mirror circuit type {mc_type} is not implemented."
+                )
 
             mcs.fixed_ansatz = fixed_ansatz
 
         self._mirror_circuit_specification = mcs
 
+        super().__init__(
+            number_of_qubits=number_of_qubits,
+            program_gate_builder=program_gate_builder,
+            sdk_name=sdk_name,
+            simulation=simulation,
+            numpy_rng_seed=numpy_rng_seed,
+            results_logger_kwargs=results_logger_kwargs,
+            logging_level=logging_level,
+            pass_manager_qiskit_indices=pass_manager_qiskit_indices,
+            qubit_indices_physical=qubit_indices_physical,
+            number_of_qubits_device_qiskit=number_of_qubits_device_qiskit,
+            mock_context_manager_if_simulated=mock_context_manager_if_simulated,
+            session_ibm=session_ibm,
+            qiskit_sampler_options=qiskit_sampler_options,
+            noiseless_simulation=noiseless_simulation,
+            qiskit_backend=qiskit_backend,
+        )
 
-        super().__init__(number_of_qubits=number_of_qubits,
-                         program_gate_builder=program_gate_builder,
-                         sdk_name=sdk_name,
-                         simulation=simulation,
-
-                         numpy_rng_seed=numpy_rng_seed,
-                         results_logger_kwargs=results_logger_kwargs,
-                         logging_level=logging_level,
-                         pass_manager_qiskit_indices=pass_manager_qiskit_indices,
-                         qubit_indices_physical=qubit_indices_physical,
-                         number_of_qubits_device_qiskit=number_of_qubits_device_qiskit,
-
-                            mock_context_manager_if_simulated=mock_context_manager_if_simulated,
-                            session_ibm=session_ibm,
-                            qiskit_sampler_options=qiskit_sampler_options,
-                            noiseless_simulation=noiseless_simulation,
-                         qiskit_backend=qiskit_backend
-                         )
-
-    def _get_mirror_circuit(self,
-                            circuit: AbstractCircuit,
-                            add_barriers: bool = True,
-                            repeats: int = 1):
+    def _get_mirror_circuit(
+        self, circuit: AbstractCircuit, add_barriers: bool = True, repeats: int = 1
+    ):
         """
         This function appends the adjoint of the circuit to the end of the circuit.
         :param circuit:
@@ -148,23 +161,31 @@ class CAFRunner(DDOTRunner):
         if repeats == 0:
             return None
 
-        adjoint_circuit = self._program_gate_builder.get_circuit_adjoint(quantum_circuit=circuit)
+        adjoint_circuit = self._program_gate_builder.get_circuit_adjoint(
+            quantum_circuit=circuit
+        )
 
-        mirror_circuit = self._program_gate_builder.copy_circuit(quantum_circuit=circuit)
+        mirror_circuit = self._program_gate_builder.copy_circuit(
+            quantum_circuit=circuit
+        )
         if add_barriers:
             mirror_circuit = self.append_barriers(circuit=mirror_circuit)
-        mirror_circuit = self._program_gate_builder.combine_circuits(left_circuit=mirror_circuit,
-                                                                     right_circuit=adjoint_circuit)
+        mirror_circuit = self._program_gate_builder.combine_circuits(
+            left_circuit=mirror_circuit, right_circuit=adjoint_circuit
+        )
 
         if repeats > 1:
-            mirror_circuit = self._program_gate_builder.repeat_circuit(quantum_circuit=mirror_circuit,
-                                                                       repeats=repeats)
+            mirror_circuit = self._program_gate_builder.repeat_circuit(
+                quantum_circuit=mirror_circuit, repeats=repeats
+            )
 
         return mirror_circuit
 
-    def _append_delays_to_circuits(self,
-                                   circuits_list: List[AbstractCircuit],
-                                   delays_in_microseconds_list: List[float]):
+    def _append_delays_to_circuits(
+        self,
+        circuits_list: List[AbstractCircuit],
+        delays_in_microseconds_list: List[float],
+    ):
         """
         This function appends delays to the circuits.
         :param circuits_list:
@@ -174,23 +195,23 @@ class CAFRunner(DDOTRunner):
 
         delayed_circuits = [[] for _ in range(len(delays_in_microseconds_list))]
         for delay_index, delay in enumerate(delays_in_microseconds_list):
-            # circuits_delay = copy.deepcopy(circuits_list)
             for circuit in circuits_list:
-                circuit_delayed = self.append_delays(circuit=circuit.copy(),
-                                                     duration=delay,
-                                                     duration_unit='us')
+                circuit_delayed = self.append_delays(
+                    circuit=circuit.copy(), duration=delay, duration_unit="us"
+                )
                 delayed_circuits[delay_index].append(circuit_delayed)
 
         return delayed_circuits
 
     @staticmethod
     def get_qaoa_ansatz_custom(  # self,
-            phase_hamiltonian: ClassicalHamiltonian,
-            program_gate_builder: AbstractProgramGateBuilder,
-            use_linear_swap_network: bool = True,
-            ansatz_kwargs: Optional[dict] = None,
-            qubit_indices_physical: Optional[Tuple[int, ...]] = None,
-            sdk_name='qiskit') -> MappedAnsatzCircuit:
+        phase_hamiltonian: ClassicalHamiltonian,
+        program_gate_builder: AbstractProgramGateBuilder,
+        use_linear_swap_network: bool = True,
+        ansatz_kwargs: Optional[dict] = None,
+        qubit_indices_physical: Optional[Tuple[int, ...]] = None,
+        sdk_name="qiskit",
+    ) -> MappedAnsatzCircuit:
         """
         wrapper for defining basic qaoa ansatz
         :param phase_hamiltonian:
@@ -203,129 +224,152 @@ class CAFRunner(DDOTRunner):
         """
         if ansatz_kwargs is not None:
             ansatz_kwargs = ansatz_kwargs.copy()
-            if 'program_gate_builder' in ansatz_kwargs:
-                del ansatz_kwargs['program_gate_builder']
+            if "program_gate_builder" in ansatz_kwargs:
+                del ansatz_kwargs["program_gate_builder"]
 
-
-            if qubit_indices_physical is None and 'qubit_indices_physical' in ansatz_kwargs:
-                qubit_indices_physical = ansatz_kwargs['qubit_indices_physical']
-                del ansatz_kwargs['qubit_indices_physical']
-
+            if (
+                qubit_indices_physical is None
+                and "qubit_indices_physical" in ansatz_kwargs
+            ):
+                qubit_indices_physical = ansatz_kwargs["qubit_indices_physical"]
+                del ansatz_kwargs["qubit_indices_physical"]
 
         if use_linear_swap_network:
-            from quapopt.optimization.QAOA.circuits.LinearSwapNetworkQAOACircuit import LinearSwapNetworkQAOACircuit
-            if ansatz_kwargs is None:
-                ansatz_kwargs = {'depth': 1,
-                                 'time_block_size': None,
-                                 'phase_separator_type': None,
-                                 'mixer_type': None}
-            if 'linear_chains_pair_device' not in ansatz_kwargs:
-                qbts_indices = qubit_indices_physical
+            from quapopt.optimization.QAOA.circuits.LinearSwapNetworkQAOACircuit import (
+                LinearSwapNetworkQAOACircuit,
+            )
 
+            if ansatz_kwargs is None:
+                ansatz_kwargs = {
+                    "depth": 1,
+                    "time_block_size": None,
+                    "phase_separator_type": None,
+                    "mixer_type": None,
+                }
+            if "linear_chains_pair_device" not in ansatz_kwargs:
+                qbts_indices = qubit_indices_physical
 
                 # If this is not specified, we assume that the chains of qubits correspond to the list of qubits
                 tuple_0_device = tuple(
-                    [(qbts_indices[i], qbts_indices[i + 1]) for i in
-                     range(0, phase_hamiltonian.number_of_qubits - 1, 2)])
+                    [
+                        (qbts_indices[i], qbts_indices[i + 1])
+                        for i in range(0, phase_hamiltonian.number_of_qubits - 1, 2)
+                    ]
+                )
                 tuple_1_device = tuple(
-                    [(qbts_indices[i], qbts_indices[i + 1]) for i in
-                     range(1, phase_hamiltonian.number_of_qubits - 1, 2)])
+                    [
+                        (qbts_indices[i], qbts_indices[i + 1])
+                        for i in range(1, phase_hamiltonian.number_of_qubits - 1, 2)
+                    ]
+                )
 
-                ansatz_kwargs['linear_chains_pair_device'] = [tuple_0_device, tuple_1_device]
+                ansatz_kwargs["linear_chains_pair_device"] = [
+                    tuple_0_device,
+                    tuple_1_device,
+                ]
 
-            ansatz_qaoa = LinearSwapNetworkQAOACircuit(sdk_name=sdk_name,
-                                                       hamiltonian_phase=phase_hamiltonian,
-                                                       program_gate_builder=program_gate_builder,
-                                                       **ansatz_kwargs,
-                                                       input_state='|0>')
+            ansatz_qaoa = LinearSwapNetworkQAOACircuit(
+                sdk_name=sdk_name,
+                hamiltonian_phase=phase_hamiltonian,
+                program_gate_builder=program_gate_builder,
+                **ansatz_kwargs,
+                input_state="|0>",
+            )
         else:
-            from quapopt.optimization.QAOA.circuits.FullyConnectedQAOACircuit import FullyConnectedQAOACircuit
+            from quapopt.optimization.QAOA.circuits.FullyConnectedQAOACircuit import (
+                FullyConnectedQAOACircuit,
+            )
+
             if ansatz_kwargs is None:
-                ansatz_kwargs = {'depth': 1,
-                                 'time_block_size': None,
-                                 'phase_separator_type': None,
-                                 'mixer_type': None,
-                                 }
+                ansatz_kwargs = {
+                    "depth": 1,
+                    "time_block_size": None,
+                    "phase_separator_type": None,
+                    "mixer_type": None,
+                }
 
-
-            ansatz_qaoa = FullyConnectedQAOACircuit(sdk_name=sdk_name,
-                                                    depth=1,
-                                                    hamiltonian_phase=phase_hamiltonian,
-                                                    program_gate_builder=program_gate_builder,
-                                                    **ansatz_kwargs,
-                                                    initial_state='|0>',
-                                                    qubit_indices_physical=qubit_indices_physical)
+            ansatz_qaoa = FullyConnectedQAOACircuit(
+                sdk_name=sdk_name,
+                depth=1,
+                hamiltonian_phase=phase_hamiltonian,
+                program_gate_builder=program_gate_builder,
+                **ansatz_kwargs,
+                initial_state="|0>",
+                qubit_indices_physical=qubit_indices_physical,
+            )
         return ansatz_qaoa
 
     @staticmethod
     def get_qaoa_ansatz_qiskit_router(
-            phase_hamiltonian: ClassicalHamiltonian,
-            qiskit_pass_manager: StagedPassManager,
-            ansatz_kwargs: Optional[dict] = None,
-            #assert_no_ancilla_qubits: bool = True
+        phase_hamiltonian: ClassicalHamiltonian,
+        qiskit_pass_manager: StagedPassManager,
+        ansatz_kwargs: Optional[dict] = None,
     ) -> MappedAnsatzCircuit:
         # TODO(FBM): just generating it this way is likely to cause indexing errors. Should either solve this or remove
 
-        from quapopt.optimization.QAOA.circuits.SabreMappedQAOACircuit import SabreMappedQAOACircuit
+        from quapopt.optimization.QAOA.circuits.SabreMappedQAOACircuit import (
+            SabreMappedQAOACircuit,
+        )
 
         if ansatz_kwargs is None:
-            ansatz_kwargs = {'depth': 1,
-                             'time_block_size': None,
-                             'phase_separator_type': None,
-                             'mixer_type': None,
-                             }
+            ansatz_kwargs = {
+                "depth": 1,
+                "time_block_size": None,
+                "phase_separator_type": None,
+                "mixer_type": None,
+            }
 
         # if not assert_no_ancilla_qubits:
-        #     raise NotImplementedError("THis function is not implemented for circuits with ancilla qubits yet. ")
 
-        ansatz_qaoa = SabreMappedQAOACircuit(qiskit_pass_manager=qiskit_pass_manager,
-                                             # depth=depth,
-                                             hamiltonian_phase=phase_hamiltonian,
-                                             # time_block_size=time_block_size,
-                                             # phase_separator_type=phase_separator_type,
-                                             # mixer_type=mixer_type,
-                                             **ansatz_kwargs,
-                                             #enforce_no_ancilla_qubits=assert_no_ancilla_qubits
-
-
-                                             )
-
-
-
+        ansatz_qaoa = SabreMappedQAOACircuit(
+            qiskit_pass_manager=qiskit_pass_manager,
+            hamiltonian_phase=phase_hamiltonian,
+            **ansatz_kwargs,
+        )
 
         return ansatz_qaoa
 
-    def _bind_parameters_mirror_circuit(self,
-                                        mirror_circuit,
-                                        mirror_circuit_type: MirrorCircuitType,
-                                        parameter_values: np.ndarray,
-                                        parameter_names):
-        if mirror_circuit_type in [MirrorCircuitType.QAOA_FULLY_CONNECTED,
-                                   MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
-                                   MirrorCircuitType.QAOA_SABRE]:
+    def _bind_parameters_mirror_circuit(
+        self,
+        mirror_circuit,
+        mirror_circuit_type: MirrorCircuitType,
+        parameter_values: np.ndarray,
+        parameter_names,
+    ):
+        if mirror_circuit_type in [
+            MirrorCircuitType.QAOA_FULLY_CONNECTED,
+            MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+            MirrorCircuitType.QAOA_SABRE,
+        ]:
 
-            values_0 = parameter_values[0:len(parameter_names[0])]
-            values_1 = parameter_values[len(parameter_names[0]):]
+            values_0 = parameter_values[0 : len(parameter_names[0])]
+            values_1 = parameter_values[len(parameter_names[0]) :]
 
-            parameters_map = {parameter_names[0]: values_0,
-                              parameter_names[1]: values_1}
+            parameters_map = {
+                parameter_names[0]: values_0,
+                parameter_names[1]: values_1,
+            }
         else:
-            raise NotImplementedError("This mirror circuit type is not implemented yet.")
+            raise NotImplementedError(
+                "This mirror circuit type is not implemented yet."
+            )
 
-        mirror_circuit = self._program_gate_builder.copy_circuit(quantum_circuit=mirror_circuit)
+        mirror_circuit = self._program_gate_builder.copy_circuit(
+            quantum_circuit=mirror_circuit
+        )
 
-        # print("hejka")
-        # print(mirror_circuit.parameters)
         # self._program_gate_builder.resolve_parameters(quantum_circuit=mirror_circuit,
         #                                               memory_map=parameters_map)
-        #raise KeyboardInterrupt
-        return self._program_gate_builder.resolve_parameters(quantum_circuit=mirror_circuit,
-                                                             memory_map=parameters_map)
+        # raise KeyboardInterrupt
+        return self._program_gate_builder.resolve_parameters(
+            quantum_circuit=mirror_circuit, memory_map=parameters_map
+        )
 
-    def _generate_ansatz_circuit(self,
-                                 mirror_circuit_specification: MirrorCircuitSpecification = None,
-                                 qiskit_pass_manager: Optional[StagedPassManager] = None
-                                 ):
+    def _generate_ansatz_circuit(
+        self,
+        mirror_circuit_specification: MirrorCircuitSpecification = None,
+        qiskit_pass_manager: Optional[StagedPassManager] = None,
+    ):
         """
 
         :param mirror_circuit_specification:
@@ -340,8 +384,12 @@ class CAFRunner(DDOTRunner):
             return None, None
 
         mirror_circuit_type = mirror_circuit_specification.mirror_circuit_type
-        mirror_circuit_ansatz_kwargs = mirror_circuit_specification.mirror_circuit_ansatz_kwargs
-        mirror_circuit_parameters_values = mirror_circuit_specification.mirror_circuit_parameters_values
+        mirror_circuit_ansatz_kwargs = (
+            mirror_circuit_specification.mirror_circuit_ansatz_kwargs
+        )
+        mirror_circuit_parameters_values = (
+            mirror_circuit_specification.mirror_circuit_parameters_values
+        )
         phase_hamiltonian_qaoa = mirror_circuit_specification.phase_hamiltonian_qaoa
 
         if mirror_circuit_type is None:
@@ -354,58 +402,90 @@ class CAFRunner(DDOTRunner):
 
         # In this case, we need to generate the ansatz
         if ansatz_circuit is None:
-            if mirror_circuit_type in [MirrorCircuitType.QAOA_FULLY_CONNECTED,
-                                       MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK]:
+            if mirror_circuit_type in [
+                MirrorCircuitType.QAOA_FULLY_CONNECTED,
+                MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+            ]:
                 # default phase for those types of circuits
                 if phase_hamiltonian_qaoa is None:
                     # If no Hamiltonian was provided, we generate a random one. Its connectivity will depend
                     # on the type of the ansatz circuit.
                     if mirror_circuit_type == MirrorCircuitType.QAOA_FULLY_CONNECTED:
-                        # print("No QAOA Hamiltonian provided, generating random fully connected Hamiltonian.")
-                        all_pairs = [(i, j) for i in range(self._number_of_qubits) for j in
-                                     range(i + 1, self._number_of_qubits)]
-                    elif mirror_circuit_type == MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK:
-                        # print("No QAOA Hamiltonian provided, generating random linear swap network Hamiltonian.")
-                        linear_chain_1 = [(i, i + 1) for i in range(0, self._number_of_qubits - 1, 2)]
-                        linear_chain_2 = [(i, i + 1) for i in range(1, self._number_of_qubits - 1, 2)]
+                        all_pairs = [
+                            (i, j)
+                            for i in range(self._number_of_qubits)
+                            for j in range(i + 1, self._number_of_qubits)
+                        ]
+                    elif (
+                        mirror_circuit_type
+                        == MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK
+                    ):
+                        linear_chain_1 = [
+                            (i, i + 1) for i in range(0, self._number_of_qubits - 1, 2)
+                        ]
+                        linear_chain_2 = [
+                            (i, i + 1) for i in range(1, self._number_of_qubits - 1, 2)
+                        ]
                         all_pairs = linear_chain_1 + linear_chain_2
                     else:
-                        raise ValueError(f"Unsupported mirror circuit type: {mirror_circuit_type}")
+                        raise ValueError(
+                            f"Unsupported mirror circuit type: {mirror_circuit_type}"
+                        )
 
                     all_qubits = [(i,) for i in range(self._number_of_qubits)]
-                    random_coefficients = 2 * self._numpy_rng.binomial(n=1, p=1 / 2,
-                                                                       size=len(all_pairs) + len(all_qubits)) - 1
+                    random_coefficients = (
+                        2
+                        * self._numpy_rng.binomial(
+                            n=1, p=1 / 2, size=len(all_pairs) + len(all_qubits)
+                        )
+                        - 1
+                    )
 
-                    hamiltonian_list = [(coeff, subset) for coeff, subset in
-                                        zip(random_coefficients, all_pairs + all_qubits)]
-                    phase_hamiltonian_qaoa = ClassicalHamiltonian(hamiltonian_list_representation=hamiltonian_list,
-                                                                  number_of_qubits=self._number_of_qubits)
+                    hamiltonian_list = [
+                        (coeff, subset)
+                        for coeff, subset in zip(
+                            random_coefficients, all_pairs + all_qubits
+                        )
+                    ]
+                    phase_hamiltonian_qaoa = ClassicalHamiltonian(
+                        hamiltonian_list_representation=hamiltonian_list,
+                        number_of_qubits=self._number_of_qubits,
+                    )
 
             if mirror_circuit_type == MirrorCircuitType.QAOA_FULLY_CONNECTED:
-                ansatz_circuit = self.get_qaoa_ansatz_custom(phase_hamiltonian=phase_hamiltonian_qaoa,
-                                                             use_linear_swap_network=False,
-                                                             ansatz_kwargs=mirror_circuit_ansatz_kwargs,
-                                                             sdk_name=self._sdk_name,
-                                                             qubit_indices_physical=self._qubit_indices_physical,
-                                                             program_gate_builder=self._program_gate_builder)
+                ansatz_circuit = self.get_qaoa_ansatz_custom(
+                    phase_hamiltonian=phase_hamiltonian_qaoa,
+                    use_linear_swap_network=False,
+                    ansatz_kwargs=mirror_circuit_ansatz_kwargs,
+                    sdk_name=self._sdk_name,
+                    qubit_indices_physical=self._qubit_indices_physical,
+                    program_gate_builder=self._program_gate_builder,
+                )
 
             elif mirror_circuit_type == MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK:
-                ansatz_circuit = self.get_qaoa_ansatz_custom(phase_hamiltonian=phase_hamiltonian_qaoa,
-                                                             use_linear_swap_network=True,
-                                                             ansatz_kwargs=mirror_circuit_ansatz_kwargs,
-                                                             sdk_name=self._sdk_name,
-                                                             qubit_indices_physical=self._qubit_indices_physical,
-                                                             program_gate_builder=self._program_gate_builder)
-
+                ansatz_circuit = self.get_qaoa_ansatz_custom(
+                    phase_hamiltonian=phase_hamiltonian_qaoa,
+                    use_linear_swap_network=True,
+                    ansatz_kwargs=mirror_circuit_ansatz_kwargs,
+                    sdk_name=self._sdk_name,
+                    qubit_indices_physical=self._qubit_indices_physical,
+                    program_gate_builder=self._program_gate_builder,
+                )
 
             elif mirror_circuit_type == MirrorCircuitType.QAOA_SABRE:
-                assert qiskit_pass_manager is not None, "For SABRE swap network, we need to provide a Qiskit pass manager."
-                ansatz_circuit = self.get_qaoa_ansatz_qiskit_router(phase_hamiltonian=phase_hamiltonian_qaoa,
-                                                                    qiskit_pass_manager=qiskit_pass_manager,
-                                                                    ansatz_kwargs=mirror_circuit_ansatz_kwargs)
+                assert (
+                    qiskit_pass_manager is not None
+                ), "For SABRE swap network, we need to provide a Qiskit pass manager."
+                ansatz_circuit = self.get_qaoa_ansatz_qiskit_router(
+                    phase_hamiltonian=phase_hamiltonian_qaoa,
+                    qiskit_pass_manager=qiskit_pass_manager,
+                    ansatz_kwargs=mirror_circuit_ansatz_kwargs,
+                )
 
             else:
-                raise ValueError(f"Unsupported mirror circuit type: {mirror_circuit_type}")
+                raise ValueError(
+                    f"Unsupported mirror circuit type: {mirror_circuit_type}"
+                )
 
         else:
             ansatz_circuit = ansatz_circuit.copy()
@@ -415,28 +495,28 @@ class CAFRunner(DDOTRunner):
 
         self._qubit_indices_physical = ansatz_circuit.logical_to_physical_qubits_map
 
-
         if mirror_circuit_parameters_values is not None:
-            circuit_to_be_mirrored = self._bind_parameters_mirror_circuit(mirror_circuit=circuit_to_be_mirrored,
-                                                                          mirror_circuit_type=mirror_circuit_type,
-                                                                          parameter_values=mirror_circuit_parameters_values,
-                                                                          parameter_names=parameter_names)
-
+            circuit_to_be_mirrored = self._bind_parameters_mirror_circuit(
+                mirror_circuit=circuit_to_be_mirrored,
+                mirror_circuit_type=mirror_circuit_type,
+                parameter_values=mirror_circuit_parameters_values,
+                parameter_names=parameter_names,
+            )
 
         return circuit_to_be_mirrored, parameter_names
 
-    def _generate_random_circuits_with_delays(self,
-                                              number_of_circuits: int,
-                                              enforce_uniqueness=False,
-                                              add_measurements=True,
-                                              add_barriers=True,
-                                              delays_list: Optional[List[float]] = None,
-                                              circuit_to_be_mirrored: Optional[AbstractCircuit] = None,
-                                              mirror_circuit_repeats: int = 1,
-                                              include_standard_ddot_circuits: bool = False,
-                                              initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
-                                              ):
-
+    def _generate_random_circuits_with_delays(
+        self,
+        number_of_circuits: int,
+        enforce_uniqueness=False,
+        add_measurements=True,
+        add_barriers=True,
+        delays_list: Optional[List[float]] = None,
+        circuit_to_be_mirrored: Optional[AbstractCircuit] = None,
+        mirror_circuit_repeats: int = 1,
+        include_standard_ddot_circuits: bool = False,
+        initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
+    ):
         """
         This function generates random circuits for the CAF experiments, assuming mirror circuit is already provided (or not)
         :param number_of_circuits:
@@ -455,57 +535,77 @@ class CAFRunner(DDOTRunner):
 
         mirror_circuit = None
         if circuit_to_be_mirrored is not None and mirror_circuit_repeats > 0:
-            mirror_circuit = self._get_mirror_circuit(circuit=circuit_to_be_mirrored,
-                                                      add_barriers=add_barriers,
-                                                      repeats=mirror_circuit_repeats)
+            mirror_circuit = self._get_mirror_circuit(
+                circuit=circuit_to_be_mirrored,
+                add_barriers=add_barriers,
+                repeats=mirror_circuit_repeats,
+            )
 
-        random_circuits = self.generate_tomography_circuits_random(number_of_circuits=number_of_circuits,
-                                                                   enforce_uniqueness=enforce_uniqueness,
-                                                                   add_measurements=False,
-                                                                   add_barriers=add_barriers,
-                                                                   prepend_circuit=None,
-                                                                   append_circuit=mirror_circuit,
-                                                                   include_standard_ddot_circuits=include_standard_ddot_circuits,
-                                                                   initial_circuit_labels=initial_circuit_labels)
+        random_circuits = self.generate_tomography_circuits_random(
+            number_of_circuits=number_of_circuits,
+            enforce_uniqueness=enforce_uniqueness,
+            add_measurements=False,
+            add_barriers=add_barriers,
+            prepend_circuit=None,
+            append_circuit=mirror_circuit,
+            include_standard_ddot_circuits=include_standard_ddot_circuits,
+            initial_circuit_labels=initial_circuit_labels,
+        )
 
-        circuit_labels, circuits_list = [tup[0] for tup in random_circuits], [tup[1] for tup in random_circuits]
+        circuit_labels, circuits_list = [tup[0] for tup in random_circuits], [
+            tup[1] for tup in random_circuits
+        ]
 
         if delays_list is None:
             delays_list = [0.0]
 
-        circuits_with_delays = self._append_delays_to_circuits(circuits_list=circuits_list,
-                                                               delays_in_microseconds_list=delays_list)
+        circuits_with_delays = self._append_delays_to_circuits(
+            circuits_list=circuits_list, delays_in_microseconds_list=delays_list
+        )
 
         if add_measurements:
 
             reverse_qiskit_indices = False
             if mirror_circuit is not None:
-                mirror_circuit_type = self._mirror_circuit_specification.mirror_circuit_type
-                if mirror_circuit_type in [MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
-                                           MirrorCircuitType.QAOA_FULLY_CONNECTED]:
+                mirror_circuit_type = (
+                    self._mirror_circuit_specification.mirror_circuit_type
+                )
+                if mirror_circuit_type in [
+                    MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+                    MirrorCircuitType.QAOA_FULLY_CONNECTED,
+                ]:
                     reverse_qiskit_indices = True
                 elif mirror_circuit_type == MirrorCircuitType.QAOA_SABRE:
                     reverse_qiskit_indices = False
                 else:
-                    raise ValueError(f"Unsupported mirror circuit type: {mirror_circuit_type}")
+                    raise ValueError(
+                        f"Unsupported mirror circuit type: {mirror_circuit_type}"
+                    )
 
-            #raise KeyboardInterrupt
-            circuits_with_delays = [[self.append_measurements(circuit=circuit,
-                                                              reverse_indices=reverse_qiskit_indices) for circuit in circuits]
-                                    for circuits in circuits_with_delays]
+            # raise KeyboardInterrupt
+            circuits_with_delays = [
+                [
+                    self.append_measurements(
+                        circuit=circuit, reverse_indices=reverse_qiskit_indices
+                    )
+                    for circuit in circuits
+                ]
+                for circuits in circuits_with_delays
+            ]
 
         return circuit_labels, circuits_with_delays
 
-    def _generate_single_random_CAF_experiment(self,
-                                               number_of_input_states: int,
-                                               delay_in_microseconds: float,
-                                               enforce_uniqueness=True,
-                                               include_standard_ddot_circuits=True,
-                                               initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
-                                               mirror_circuit_specification: MirrorCircuitSpecification = None,
-                                               mirror_circuit_repeats: int = 1,
-                                               qiskit_pass_manager: Optional[StagedPassManager] = None
-                                               ) -> Tuple[List[Tuple[int, ...]], List[AbstractCircuit], List[Any]]:
+    def _generate_single_random_CAF_experiment(
+        self,
+        number_of_input_states: int,
+        delay_in_microseconds: float,
+        enforce_uniqueness=True,
+        include_standard_ddot_circuits=True,
+        initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
+        mirror_circuit_specification: MirrorCircuitSpecification = None,
+        mirror_circuit_repeats: int = 1,
+        qiskit_pass_manager: Optional[StagedPassManager] = None,
+    ) -> Tuple[List[Tuple[int, ...]], List[AbstractCircuit], List[Any]]:
         """
         This function generates standardized random CAF experiments with (optional) mirror circuits.
 
@@ -563,7 +663,8 @@ class CAFRunner(DDOTRunner):
         if mirror_circuit_repeats != 0:
             circuit_to_be_mirrored, parameter_names = self._generate_ansatz_circuit(
                 mirror_circuit_specification=mirror_circuit_specification,
-                qiskit_pass_manager=qiskit_pass_manager)
+                qiskit_pass_manager=qiskit_pass_manager,
+            )
 
         # generate random circuits with the ansatz circuit after input state and a delay afterwards
         circuits_labels, circuits_list = self._generate_random_circuits_with_delays(
@@ -575,24 +676,26 @@ class CAFRunner(DDOTRunner):
             circuit_to_be_mirrored=circuit_to_be_mirrored,
             mirror_circuit_repeats=mirror_circuit_repeats,
             include_standard_ddot_circuits=include_standard_ddot_circuits,
-            initial_circuit_labels=initial_circuit_labels)
-        assert len(circuits_list) == 1, ("The circuits list must be of length 1, since we only generate one delay.")
+            initial_circuit_labels=initial_circuit_labels,
+        )
+        assert (
+            len(circuits_list) == 1
+        ), "The circuits list must be of length 1, since we only generate one delay."
         circuits_list = circuits_list[0]
 
         return circuits_labels, circuits_list, parameter_names
 
-    def generate_set_of_CAF_experiments(self,
-                                        # mirror_circuit_specification: MirrorCircuitSpecification,
-                                        mirror_circuit_repeats_list: List[int],
-                                        # delays_in_microseconds_list: List[float],
-                                        delay_schedules_list: List[DelaySchedulerBase],
-                                        number_of_input_states_per_experiment: int,
-                                        qiskit_pass_manager: Optional[StagedPassManager] = None,
-                                        initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
-                                        include_standard_DDOT_circuits: bool = False
-
-                                        ) -> List[Tuple[List[
-        Tuple[int, ...]], List[AbstractCircuit], pd.DataFrame]]:
+    def generate_set_of_CAF_experiments(
+        self,
+        # mirror_circuit_specification: MirrorCircuitSpecification,
+        mirror_circuit_repeats_list: List[int],
+        # delays_in_microseconds_list: List[float],
+        delay_schedules_list: List[DelaySchedulerBase],
+        number_of_input_states_per_experiment: int,
+        qiskit_pass_manager: Optional[StagedPassManager] = None,
+        initial_circuit_labels: Optional[List[Tuple[int, ...]]] = None,
+        include_standard_DDOT_circuits: bool = False,
+    ) -> List[Tuple[List[Tuple[int, ...]], List[AbstractCircuit], pd.DataFrame]]:
         """
         A single CAF experiment set is a CARTESIAN PRODUCT of:
         1. Random X gates as input state.
@@ -619,67 +722,73 @@ class CAFRunner(DDOTRunner):
         """
         mcs = self._mirror_circuit_specification
 
-        assert mcs.mirror_circuit_parameters_values is not None, ("To generate the experiments, "
-                                                                  "we need to provide the parameters for the mirror circuit.")
-
+        assert mcs.mirror_circuit_parameters_values is not None, (
+            "To generate the experiments, "
+            "we need to provide the parameters for the mirror circuit."
+        )
 
         all_experiments = []
-
 
         for delay_scheduler in delay_schedules_list:
             # We create schedule of delays for given scheduler
             mcs_delay = mcs.copy()
             ansatz_delay = mcs_delay.fixed_ansatz
             circuit_base_delay = ansatz_delay.quantum_circuit
-            circuit_delayed = add_delays_to_circuit_layers(quantum_circuit=circuit_base_delay,
-                                                           number_of_qubits=self._number_of_qubits,
-                                                           delay_scheduler=delay_scheduler,
-                                                           for_visualization=False,
-                                                           #add_barriers=False,
-                                                           # special flag so the "delay_at_the_end" property is ignored;
-                                                           # for mirror circuit, ansatz is not the actual end of the circuit
-                                                           ignore_delay_at_the_end=True,
-                                                           ignore_add_barriers_flag=False
-                                                           )
+            circuit_delayed = add_delays_to_circuit_layers(
+                quantum_circuit=circuit_base_delay,
+                number_of_qubits=self._number_of_qubits,
+                delay_scheduler=delay_scheduler,
+                for_visualization=False,
+                # special flag so the "delay_at_the_end" property is ignored;
+                # for mirror circuit, ansatz is not the actual end of the circuit
+                ignore_delay_at_the_end=True,
+                ignore_add_barriers_flag=False,
+            )
             ansatz_delay.quantum_circuit = circuit_delayed
             mcs_delay.fixed_ansatz = ansatz_delay
 
             for mcr in mirror_circuit_repeats_list:
-                (circuits_labels, circuits_list, _) = self._generate_single_random_CAF_experiment(
-                    number_of_input_states=number_of_input_states_per_experiment,
-                    delay_in_microseconds=delay_scheduler.delay_at_the_end,
-                    enforce_uniqueness=True,
-                    mirror_circuit_specification=mcs_delay,
-                    mirror_circuit_repeats=mcr,
-                    qiskit_pass_manager=qiskit_pass_manager,
-                    initial_circuit_labels=initial_circuit_labels,
-                    include_standard_ddot_circuits=include_standard_DDOT_circuits,
-
+                (circuits_labels, circuits_list, _) = (
+                    self._generate_single_random_CAF_experiment(
+                        number_of_input_states=number_of_input_states_per_experiment,
+                        delay_in_microseconds=delay_scheduler.delay_at_the_end,
+                        enforce_uniqueness=True,
+                        mirror_circuit_specification=mcs_delay,
+                        mirror_circuit_repeats=mcr,
+                        qiskit_pass_manager=qiskit_pass_manager,
+                        initial_circuit_labels=initial_circuit_labels,
+                        include_standard_ddot_circuits=include_standard_DDOT_circuits,
+                    )
                 )
 
-                df_metadata_exp = pd.DataFrame(data={"DSDescription": [delay_scheduler.get_string_description()],
-                                                     "MCRepeats": [mcr]})
+                df_metadata_exp = pd.DataFrame(
+                    data={
+                        "DSDescription": [delay_scheduler.get_string_description()],
+                        "MCRepeats": [mcr],
+                    }
+                )
 
-                # df_metadata_exp = pd.concat([df_metadata_exp, df_mcr_metadata], axis=1)
-
-                all_experiments.append((circuits_labels, circuits_list, df_metadata_exp))
+                all_experiments.append(
+                    (circuits_labels, circuits_list, df_metadata_exp)
+                )
 
         return all_experiments
 
-    def run_CAF_experiments_qiskit_session(self,
-                                           CAF_experiments_list: List[
-                                               Tuple[List[Tuple[int, ...]], List[AbstractCircuit], pd.DataFrame]],
-                                           number_of_shots,
-                                           qiskit_pass_manager_before_execution=None,
-                                           show_progress_bar=True,
-                                           max_attempts_run=5,
-                                           return_results: bool = False,
-                                           additional_metadata_experiment: Optional[pd.DataFrame] = None,
-                                           batched_execution: bool = False,
-                                           progress_bar_in_notebook: bool = True,
-                                           table_name_suffix:Optional[str]=None
-                                           ) -> Optional[Tuple[
-        List[Tuple[int, ...]], List[Tuple[np.ndarray, np.ndarray]]]]:
+    def run_CAF_experiments_qiskit_session(
+        self,
+        CAF_experiments_list: List[
+            Tuple[List[Tuple[int, ...]], List[AbstractCircuit], pd.DataFrame]
+        ],
+        number_of_shots,
+        qiskit_pass_manager_before_execution=None,
+        show_progress_bar=True,
+        max_attempts_run=5,
+        return_results: bool = False,
+        additional_metadata_experiment: Optional[pd.DataFrame] = None,
+        batched_execution: bool = False,
+        progress_bar_in_notebook: bool = True,
+        table_name_suffix: Optional[str] = None,
+    ) -> Optional[Tuple[List[Tuple[int, ...]], List[Tuple[np.ndarray, np.ndarray]]]]:
         """
         This function runs the CAF experiments using Qiskit.
         It mainly just flattens the experiments so we can use method from parent class to run qiskit session.
@@ -719,21 +828,31 @@ class CAFRunner(DDOTRunner):
             # just to makes sure that we LOG everything
             ignore_logging_level = True
 
+        for exp_index, (circuits_labels, circuits_list, df_metadata_exp) in enumerate(
+            CAF_experiments_list
+        ):
+            assert (
+                len(df_metadata_exp) == 1
+            ), "The metadata dataframe should be of length 1"
 
-
-        for exp_index, (circuits_labels, circuits_list, df_metadata_exp) in enumerate(CAF_experiments_list):
-            assert len(df_metadata_exp) == 1, "The metadata dataframe should be of length 1"
-
-            delay_schedule_description = df_metadata_exp['DSDescription'].values[0]
-            mcr = df_metadata_exp['MCRepeats'].values[0]
-            table_name_add = _standardized_table_name_CAF(delay_schedule_description=delay_schedule_description,
-                                                         mirror_circuit_repeats=mcr)
-            table_name_add = self.results_logger.join_table_name_parts([table_name_add, table_name_suffix])
+            delay_schedule_description = df_metadata_exp["DSDescription"].values[0]
+            mcr = df_metadata_exp["MCRepeats"].values[0]
+            table_name_add = _standardized_table_name_CAF(
+                delay_schedule_description=delay_schedule_description,
+                mirror_circuit_repeats=mcr,
+            )
+            table_name_add = self.results_logger.join_table_name_parts(
+                [table_name_add, table_name_suffix]
+            )
             table_names_flat += [table_name_add] * len(circuits_labels)
 
-            assert len(df_metadata_exp) == 1, "The metadata dataframe should be of length 1"
+            assert (
+                len(df_metadata_exp) == 1
+            ), "The metadata dataframe should be of length 1"
 
-            logging_annotation += [df_metadata_exp.to_dict(orient='records')[0]]*len(circuits_labels)
+            logging_annotation += [df_metadata_exp.to_dict(orient="records")[0]] * len(
+                circuits_labels
+            )
 
             # To avoid logging metadata for each circuit (as could be done by passing exploded list to the parent class
             # runner), we just log it once here.
@@ -742,158 +861,194 @@ class CAFRunner(DDOTRunner):
             if ignore_logging_level or self.logging_level != LoggingLevel.NONE:
                 # logging the metadata for each experiment
                 if additional_metadata_experiment is not None:
-                    assert set(df_metadata_exp.columns).intersection(
-                        set(additional_metadata_experiment.columns)) == set(), \
-                        (
-                            "The metadata dataframe should not contain any columns that are already in the experiment metadata.")
-                    df_metadata_exp = pd.concat([df_metadata_exp, additional_metadata_experiment], axis=1)
+                    assert (
+                        set(df_metadata_exp.columns).intersection(
+                            set(additional_metadata_experiment.columns)
+                        )
+                        == set()
+                    ), "The metadata dataframe should not contain any columns that are already in the experiment metadata."
+                    df_metadata_exp = pd.concat(
+                        [df_metadata_exp, additional_metadata_experiment], axis=1
+                    )
 
-                self.results_logger.write_results(dataframe=df_metadata_exp,
-                                                  data_type=SNDT.CircuitsMetadata,
-                                                  ignore_logging_level=ignore_logging_level,
-                                                  additional_annotation_dict=None,
-                                                  table_name_suffix=table_name_add,
-                                                  )
+                self.results_logger.write_results(
+                    dataframe=df_metadata_exp,
+                    data_type=SNDT.CircuitsMetadata,
+                    ignore_logging_level=ignore_logging_level,
+                    additional_annotation_dict=None,
+                    table_name_suffix=table_name_add,
+                )
 
             for circ_l, circ in zip(circuits_labels, circuits_list):
                 flat_tomography_circuits.append((circ_l, circ))
 
-        assert len(flat_tomography_circuits) == len(table_names_flat), \
-            ("The number of circuits and the number of table names must be the same.")
+        assert len(flat_tomography_circuits) == len(
+            table_names_flat
+        ), "The number of circuits and the number of table names must be the same."
 
-        return self.run_tomography_circuits_qiskit(tomography_circuits=flat_tomography_circuits,
-                                                   number_of_shots=number_of_shots,
-                                                   qiskit_pass_manager=qiskit_pass_manager_before_execution,
-                                                   logging_table_names=table_names_flat,
-                                                   logging_annotation=logging_annotation,
-                                                   logging_metadata=None,
-                                                   show_progress_bar=show_progress_bar,
-                                                   max_attempts_run=max_attempts_run,
-                                                   return_results=return_results,
-                                                   batched_execution=batched_execution,
-                                                   progress_bar_in_notebook=progress_bar_in_notebook
-                                                   )
+        return self.run_tomography_circuits_qiskit(
+            tomography_circuits=flat_tomography_circuits,
+            number_of_shots=number_of_shots,
+            qiskit_pass_manager=qiskit_pass_manager_before_execution,
+            logging_table_names=table_names_flat,
+            logging_annotation=logging_annotation,
+            logging_metadata=None,
+            show_progress_bar=show_progress_bar,
+            max_attempts_run=max_attempts_run,
+            return_results=return_results,
+            batched_execution=batched_execution,
+            progress_bar_in_notebook=progress_bar_in_notebook,
+        )
 
 
 if __name__ == "__main__":
 
-    from quapopt.circuits.gates.logical.LogicalGateBuilderQiskit import LogicalGateBuilderQiskit
-    from qiskit_aer.backends.aer_simulator import AerSimulator
     from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    from qiskit_aer.backends.aer_simulator import AerSimulator
+
+    from quapopt.circuits.gates.logical.LogicalGateBuilderQiskit import (
+        LogicalGateBuilderQiskit,
+    )
 
     number_of_qubits_test = 3
-    number_of_samples_test = 10 ** 4
+    number_of_samples_test = 10**4
     number_of_circuits_test = 2
 
-    computation_backend = 'numpy'
+    computation_backend = "numpy"
 
-    if computation_backend == 'cupy':
+    if computation_backend == "cupy":
         bck = cp
-    elif computation_backend == 'numpy':
+    elif computation_backend == "numpy":
         bck = np
     else:
         raise ValueError(
-            f"Computation backend {computation_backend} not supported. Supported backends are: cupy, numpy.")
+            f"Computation backend {computation_backend} not supported. Supported backends are: cupy, numpy."
+        )
 
     gate_builder = LogicalGateBuilderQiskit()
-    sdk_name = 'qiskit'
+    sdk_name = "qiskit"
 
-    experiment_folders_hierarchy = ['noise_characterization', "CAF_experiments"]
-    uuid = 'TestUuid10'
+    experiment_folders_hierarchy = ["noise_characterization", "CAF_experiments"]
+    uuid = "TestUuid10"
     directory_main = None
     table_name_prefix = "TestRuns10"
-    table_name_main = 'CAFResults'
-    results_logger_kwargs = {'experiment_folders_hierarchy': experiment_folders_hierarchy,
-                             'uuid': uuid,
-                             'base_path': directory_main,
-                             'table_name_prefix': table_name_prefix,
-                             'table_name_prefix': table_name_main}
+    table_name_main = "CAFResults"
+    results_logger_kwargs = {
+        "experiment_folders_hierarchy": experiment_folders_hierarchy,
+        "uuid": uuid,
+        "base_path": directory_main,
+        "table_name_prefix": table_name_prefix,
+        "table_name_prefix": table_name_main,
+    }
 
-    CAF_test = CAFRunner(number_of_qubits=number_of_qubits_test,
-                         program_gate_builder=gate_builder,
-                         sdk_name=sdk_name,
-                         numpy_rng_seed=0,
-                         results_logger_kwargs=results_logger_kwargs,
-                         logging_level=LoggingLevel.VERY_DETAILED
-                         )
+    CAF_test = CAFRunner(
+        number_of_qubits=number_of_qubits_test,
+        program_gate_builder=gate_builder,
+        sdk_name=sdk_name,
+        numpy_rng_seed=0,
+        results_logger_kwargs=results_logger_kwargs,
+        logging_level=LoggingLevel.VERY_DETAILED,
+    )
 
     seed_cost_hamiltonian_test = 0
     numpy_rng = np.random.default_rng(seed=0)
 
     random_parameters = numpy_rng.uniform(low=-np.pi, high=np.pi, size=2)
 
+    from quapopt.data_analysis.data_handling import (
+        CoefficientsDistribution,
+        CoefficientsDistributionSpecifier,
+        CoefficientsType,
+        HamiltonianModels,
+    )
     from quapopt.hamiltonians.generators import build_hamiltonian_generator
-    from quapopt.data_analysis.data_handling import (CoefficientsType,
-                                                     CoefficientsDistribution,
-                                                     CoefficientsDistributionSpecifier,
-                                                     HamiltonianModels)
 
     coefficients_type = CoefficientsType.DISCRETE
     coefficients_distribution = CoefficientsDistribution.Uniform
-    coefficients_distribution_properties = {'low': -1, 'high': 1, 'step': 1}
-    coefficients_distribution_specifier = CoefficientsDistributionSpecifier(CoefficientsType=coefficients_type,
-                                                                            CoefficientsDistributionName=coefficients_distribution,
-                                                                            CoefficientsDistributionProperties=coefficients_distribution_properties)
+    coefficients_distribution_properties = {"low": -1, "high": 1, "step": 1}
+    coefficients_distribution_specifier = CoefficientsDistributionSpecifier(
+        CoefficientsType=coefficients_type,
+        CoefficientsDistributionName=coefficients_distribution,
+        CoefficientsDistributionProperties=coefficients_distribution_properties,
+    )
 
     # We generate a Hamiltonian instance. In this case it's a random Sherrington-Kirkpatrick Hamiltonian
     hamiltonian_model = HamiltonianModels.SherringtonKirkpatrick
     localities = (1, 2)
-    generator_cost_hamiltonian = build_hamiltonian_generator(hamiltonian_model=hamiltonian_model,
-                                                             localities=localities,
-                                                             coefficients_distribution_specifier=coefficients_distribution_specifier)
+    generator_cost_hamiltonian = build_hamiltonian_generator(
+        hamiltonian_model=hamiltonian_model,
+        localities=localities,
+        coefficients_distribution_specifier=coefficients_distribution_specifier,
+    )
 
     phase_hamiltonian_qaoa = generator_cost_hamiltonian.generate_instance(
         number_of_qubits=number_of_qubits_test,
         seed=seed_cost_hamiltonian_test,
-        read_from_drive_if_present=True)
+        read_from_drive_if_present=True,
+    )
 
-    print("Class description (cost):", phase_hamiltonian_qaoa.hamiltonian_class_description)
-    print("Instance description (cost):", phase_hamiltonian_qaoa.hamiltonian_instance_description)
+    print(
+        "Class description (cost):",
+        phase_hamiltonian_qaoa.hamiltonian_class_description,
+    )
+    print(
+        "Instance description (cost):",
+        phase_hamiltonian_qaoa.hamiltonian_instance_description,
+    )
 
     MCS = MirrorCircuitSpecification
     delays_list = [0.0, 1.0, 2.0]
     mirror_circuit_repeats = [0, 1, 2, 3, 4]
-    mirror_circuit_specification = MCS(mirror_circuit_type=MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
-                                       mirror_circuit_ansatz_kwargs={'depth': 1,
-                                                                     'time_block_size': int(number_of_qubits_test / 2),
-                                                                     'phase_separator_type': PhaseSeparatorType.QAOA,
-                                                                     'mixer_type': MixerType.QAOA},
-                                       mirror_circuit_parameters_values=random_parameters,
-                                       phase_hamiltonian_qaoa=phase_hamiltonian_qaoa)
+    mirror_circuit_specification = MCS(
+        mirror_circuit_type=MirrorCircuitType.QAOA_LINEAR_SWAP_NETWORK,
+        mirror_circuit_ansatz_kwargs={
+            "depth": 1,
+            "time_block_size": int(number_of_qubits_test / 2),
+            "phase_separator_type": PhaseSeparatorType.QAOA,
+            "mixer_type": MixerType.QAOA,
+        },
+        mirror_circuit_parameters_values=random_parameters,
+        phase_hamiltonian_qaoa=phase_hamiltonian_qaoa,
+    )
 
     all_experiments = CAF_test.generate_set_of_CAF_experiments(
         mirror_circuit_specification=mirror_circuit_specification,
         delays_in_microseconds_list=delays_list,
         number_of_input_states_per_experiment=number_of_circuits_test,
-        mirror_circuit_repeats_list=mirror_circuit_repeats)
+        mirror_circuit_repeats_list=mirror_circuit_repeats,
+    )
 
-    pd.set_option('display.max_rows', None)
-    pd.set_option('display.max_columns', None)
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
 
-    qiskit_backend = AerSimulator(method='statevector',
-                                  device="GPU")
-    pass_manager = generate_preset_pass_manager(backend=qiskit_backend,
-                                                optimization_level=0)
+    qiskit_backend = AerSimulator(method="statevector", device="GPU")
+    pass_manager = generate_preset_pass_manager(
+        backend=qiskit_backend, optimization_level=0
+    )
 
-    CAF_test.run_CAF_experiments_qiskit_session(CAF_experiments_list=all_experiments,
-                                                qiskit_backend=qiskit_backend,
-                                                simulation=True,
-                                                number_of_shots=number_of_samples_test,
-                                                qiskit_sampler_options=None,
-                                                qiskit_pass_manager_before_execution=pass_manager,
-                                                show_progress_bar=True,
-                                                max_attempts_run=5,
-                                                mock_context_manager_if_simulated=True,
-                                                return_results=False)
+    CAF_test.run_CAF_experiments_qiskit_session(
+        CAF_experiments_list=all_experiments,
+        qiskit_backend=qiskit_backend,
+        simulation=True,
+        number_of_shots=number_of_samples_test,
+        qiskit_sampler_options=None,
+        qiskit_pass_manager_before_execution=pass_manager,
+        show_progress_bar=True,
+        max_attempts_run=5,
+        mock_context_manager_if_simulated=True,
+        return_results=False,
+    )
 
-    caf_analyzer = CAFAnalyzer(mirror_circuit_repeats_list=mirror_circuit_repeats,
-                               delays_list=delays_list,
-                               results_list=None,
-                               results_logger_kwargs=results_logger_kwargs,
-                               noisy_sampler_post_processing=None,
-                               noisy_sampler_post_processing_rng=None,
-                               uuid=uuid,
-                               computation_backend=computation_backend)
+    caf_analyzer = CAFAnalyzer(
+        mirror_circuit_repeats_list=mirror_circuit_repeats,
+        delays_list=delays_list,
+        results_list=None,
+        results_logger_kwargs=results_logger_kwargs,
+        noisy_sampler_post_processing=None,
+        noisy_sampler_post_processing_rng=None,
+        uuid=uuid,
+        computation_backend=computation_backend,
+    )
 
     raise KeyboardInterrupt
 
@@ -912,7 +1067,7 @@ if __name__ == "__main__":
                 raise ValueError(f"Labels do not match: {circ_l} != {label_should_be}")
             print("label:", circ_l)
 
-            print('results:', res_l)
+            print("results:", res_l)
             print()
 
             all_inputs.append(np.array(circ_l, dtype=np.int32))
@@ -921,4 +1076,4 @@ if __name__ == "__main__":
 
     all_inputs = np.array(all_inputs, dtype=np.int32)
     all_outputs = np.array(all_outputs, dtype=np.int32)
-    print('CONSISTENT:', np.allclose(all_inputs, all_outputs))
+    print("CONSISTENT:", np.allclose(all_inputs, all_outputs))

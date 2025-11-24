@@ -3,11 +3,14 @@ Helper functions for the portfolio optimization problem
 """
 
 from __future__ import annotations
-from collections.abc import Sequence
-import numpy as np
-from functools import partial
+
 import itertools
+from collections.abc import Sequence
+from functools import partial
 from typing import Any
+
+import numpy as np
+
 from quapopt.additional_packages.qokit.parameter_utils import get_sk_gamma_beta
 
 
@@ -57,7 +60,9 @@ def kbits(N, K):
         yield np.array(s)
 
 
-def portfolio_brute_force(po_problem: dict, return_bitstring=False) -> tuple[float, float, float] | tuple[float, float, float, float]:
+def portfolio_brute_force(
+    po_problem: dict, return_bitstring=False
+) -> tuple[float, float, float] | tuple[float, float, float, float]:
     N = po_problem["N"]
     K = po_problem["K"]
     min_constrained = float("inf")
@@ -88,13 +93,19 @@ def get_data(N, seed=1, real=False) -> tuple[float, float]:
     https://github.com/Qiskit/qiskit-finance/blob/main/docs/tutorials/11_time_series.ipynb
     """
     import datetime
+
     from qiskit_finance.data_providers import RandomDataProvider, YahooDataProvider
 
     tickers = []
     for i in range(N):
         tickers.append("t" + str(i))
     if real is False:
-        data = RandomDataProvider(tickers=tickers, start=datetime.datetime(2016, 1, 1), end=datetime.datetime(2016, 1, 30), seed=seed)
+        data = RandomDataProvider(
+            tickers=tickers,
+            start=datetime.datetime(2016, 1, 1),
+            end=datetime.datetime(2016, 1, 30),
+            seed=seed,
+        )
     else:
         stock_symbols = [
             "AAPL",
@@ -135,7 +146,6 @@ def get_data(N, seed=1, real=False) -> tuple[float, float]:
             tickers=stock_symbols[:N],
             start=datetime.datetime(2020, 1, 1),
             end=datetime.datetime(2020, 1, 30),
-            # end=datetime.datetime(2021, 1, 1),
         )
 
     data.run()
@@ -156,8 +166,16 @@ def get_problem(N, K, q, seed=1, pre=False) -> dict[str, Any]:
     po_problem["means"], po_problem["cov"] = get_data(N, seed=seed)
     po_problem["pre"] = pre
     if pre == "rule":
-        means_in_spins = np.array([po_problem["means"][i] - q * np.sum(po_problem["cov"][i, :]) for i in range(len(po_problem["means"]))])
-        scale = 1 / np.sqrt(np.mean(((q * po_problem["cov"]) ** 2).flatten()) + np.mean((means_in_spins**2).flatten()))
+        means_in_spins = np.array(
+            [
+                po_problem["means"][i] - q * np.sum(po_problem["cov"][i, :])
+                for i in range(len(po_problem["means"]))
+            ]
+        )
+        scale = 1 / np.sqrt(
+            np.mean(((q * po_problem["cov"]) ** 2).flatten())
+            + np.mean((means_in_spins**2).flatten())
+        )
         # scale = 1 / (0.5*(np.sqrt(np.mean((po_problem['cov']**2).flatten())+np.mean((po_problem['means']**2).flatten())))
     elif np.isscalar(pre):
         scale = pre
@@ -279,7 +297,9 @@ def get_sk_ini(p: int):
     return X0
 
 
-def alignment_para_to_qokit_scale(gammas: Sequence[float] | None, betas: Sequence[float] | None):
+def alignment_para_to_qokit_scale(
+    gammas: Sequence[float] | None, betas: Sequence[float] | None
+):
     """Converts from format in alignment project
     into the scale used in qokit
     """

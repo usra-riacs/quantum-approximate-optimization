@@ -1,25 +1,27 @@
 # don't report type errors in this file, since custatevec is not typed
 # pyright: reportGeneralTypeIssues=false
 import typing
+
 from mpi4py import MPI
-#Lazy monkey-patching of cupy
+
+# Lazy monkey-patching of cupy
 try:
     import cupy as cp
-except(ImportError,ModuleNotFoundError):
+except (ImportError, ModuleNotFoundError):
     import numpy as cp
 
-import numpy as np
-import cuquantum
-from cuquantum import custatevec as cusv
-import cuquantum.custatevec as cusv
-from contextlib import contextmanager
-import socket
-import numba.cuda
-
-from quapopt.additional_packages.qokit.fur.mpi_nbcuda.qaoa_simulator import QAOAFastSimulatorGPUMPIBase
-from quapopt.additional_packages.qokit.fur.nbcuda.diagonal import apply_diagonal
 import time
-from cuquantum import cudaDataType
+
+import cuquantum
+import cuquantum.custatevec as cusv
+import numba.cuda
+import numpy as np
+from cuquantum import custatevec as cusv
+
+from quapopt.additional_packages.qokit.fur.mpi_nbcuda.qaoa_simulator import (
+    QAOAFastSimulatorGPUMPIBase,
+)
+from quapopt.additional_packages.qokit.fur.nbcuda.diagonal import apply_diagonal
 
 cqdt = cuquantum.cudaDataType
 N_LOCAL_INDEX_BITS = 8
@@ -45,7 +47,10 @@ def get_cusv_communicator(handle):
         # please compile mpicomm.c to generate the shared library and place its path here
         soname = ""
         if not soname:
-            raise ValueError("please supply the soname to the shared library providing " "an external communicator for cuStateVec")
+            raise ValueError(
+                "please supply the soname to the shared library providing "
+                "an external communicator for cuStateVec"
+            )
 
     communicator = cusv.communicator_create(handle, communicator_type, soname)
     return communicator
@@ -75,7 +80,6 @@ class CudaDistributedContext:
 def distribute_device_handles(comm, deviceptr, eventptr):
     ipc_mem_handle = cp.cuda.runtime.ipcGetMemHandle(deviceptr)
     ipc_mem_handles = comm.allgather(ipc_mem_handle)
-    # comm.Barrier()
     ipc_event_handle = cp.cuda.runtime.ipcGetEventHandle(eventptr)
     ipc_event_handles = comm.allgather(ipc_event_handle)
     return ipc_mem_handles, ipc_event_handles
@@ -98,7 +102,9 @@ def setup_p2p_comm(ctx: CudaDistributedContext, n_p2p_bits, sv_index):
     if n_p2p_bits > 0:
         # distribute device memory handles
         # under the hood the handle is stored as a Python bytes object
-        ipc_mem_handles, ipc_event_handles = distribute_device_handles(ctx.comm, ctx.sv_deviceptr, ctx.local_event.ptr)
+        ipc_mem_handles, ipc_event_handles = distribute_device_handles(
+            ctx.comm, ctx.sv_deviceptr, ctx.local_event.ptr
+        )
         if sv_index < 8:
             print(f"25 rank {sv_index} Handles distributed", flush=True)
 
@@ -124,14 +130,25 @@ def setup_p2p_comm(ctx: CudaDistributedContext, n_p2p_bits, sv_index):
             d_sub_sv_p2p = cp.cuda.runtime.ipcOpenMemHandle(dst_mem_handle)
             ctx.d_sub_svs_p2p.append(d_sub_sv_p2p)
 
-            event_p2p = cp.cuda.runtime.ipcOpenEventHandle(ipc_event_handles[p2p_sub_sv_index])
+            event_p2p = cp.cuda.runtime.ipcOpenEventHandle(
+                ipc_event_handles[p2p_sub_sv_index]
+            )
             ctx.remote_events.append(event_p2p)
 
         # set p2p sub state vectors
-        assert len(ctx.d_sub_svs_p2p) == len(sub_sv_indices_p2p) == len(ctx.remote_events)
+        assert (
+            len(ctx.d_sub_svs_p2p) == len(sub_sv_indices_p2p) == len(ctx.remote_events)
+        )
         if sv_index < 8:
             print(f"26 rank {sv_index} set sub svs", flush=True)
-        cusv.sv_swap_worker_set_sub_svs_p2p(ctx.handle, ctx.swap_worker, ctx.d_sub_svs_p2p, sub_sv_indices_p2p, ctx.remote_events, len(ctx.d_sub_svs_p2p))
+        cusv.sv_swap_worker_set_sub_svs_p2p(
+            ctx.handle,
+            ctx.swap_worker,
+            ctx.d_sub_svs_p2p,
+            sub_sv_indices_p2p,
+            ctx.remote_events,
+            len(ctx.d_sub_svs_p2p),
+        )
 
 
 def destroy_cuda_distributed_context(ctx: CudaDistributedContext):
@@ -146,7 +163,9 @@ def destroy_cuda_distributed_context(ctx: CudaDistributedContext):
         cp.cuda.runtime.eventDestroy(event)
 
 
-def setup_distributed_cusv_swap(rank, size, n_global_index_bits, n_local_index_bits, n_p2p_device_bits, sv_deviceptr):
+def setup_distributed_cusv_swap(
+    rank, size, n_global_index_bits, n_local_index_bits, n_p2p_device_bits, sv_deviceptr
+):
     ctx = CudaDistributedContext()
     ctx.sv_deviceptr = sv_deviceptr
 
@@ -168,13 +187,23 @@ def setup_distributed_cusv_swap(rank, size, n_global_index_bits, n_local_index_b
 
     # -- workspace and swap worker stuff
     # create sv segment swap worker
-    ctx.swap_worker, extra_workspace_size, min_transfer_workspace_size = cusv.sv_swap_worker_create(
-        ctx.handle, ctx.communicator, sv_deviceptr, rank, ctx.local_event.ptr, sv_data_type, ctx.local_stream.ptr
+    ctx.swap_worker, extra_workspace_size, min_transfer_workspace_size = (
+        cusv.sv_swap_worker_create(
+            ctx.handle,
+            ctx.communicator,
+            sv_deviceptr,
+            rank,
+            ctx.local_event.ptr,
+            sv_data_type,
+            ctx.local_stream.ptr,
+        )
     )
 
     # set extra workspace
     d_extra_workspace = cp.cuda.alloc(extra_workspace_size)
-    cusv.sv_swap_worker_set_extra_workspace(ctx.handle, ctx.swap_worker, d_extra_workspace.ptr, extra_workspace_size)
+    cusv.sv_swap_worker_set_extra_workspace(
+        ctx.handle, ctx.swap_worker, d_extra_workspace.ptr, extra_workspace_size
+    )
 
     if rank < 2:
         print(f"21 rank {rank} Created workspace", flush=True)
@@ -183,7 +212,9 @@ def setup_distributed_cusv_swap(rank, size, n_global_index_bits, n_local_index_b
     # Depending on the systems, larger transfer workspace can improve the performance
     transfer_workspace_size = max(min_transfer_workspace_size, transfer_workspace_size)
     d_transfer_workspace = cp.cuda.alloc(transfer_workspace_size)
-    cusv.sv_swap_worker_set_transfer_workspace(ctx.handle, ctx.swap_worker, d_transfer_workspace.ptr, transfer_workspace_size)
+    cusv.sv_swap_worker_set_transfer_workspace(
+        ctx.handle, ctx.swap_worker, d_transfer_workspace.ptr, transfer_workspace_size
+    )
     # --
     if rank < 2:
         print(f"22 rank {rank} Finished workspace", flush=True)
@@ -191,7 +222,9 @@ def setup_distributed_cusv_swap(rank, size, n_global_index_bits, n_local_index_b
     # create distributed index bit swap scheduler
     if rank < 2:
         print(f"23 rank {rank} P2P comm set up", flush=True)
-    ctx.scheduler = cusv.dist_index_bit_swap_scheduler_create(ctx.handle, n_global_index_bits, n_local_index_bits)
+    ctx.scheduler = cusv.dist_index_bit_swap_scheduler_create(
+        ctx.handle, n_global_index_bits, n_local_index_bits
+    )
 
     # set the index bit swaps to the scheduler
     # n_swap_batches is obtained by the call.  This value specifies the number of loops
@@ -207,17 +240,29 @@ def run_distributed_index_bit_swaps(ctx, index_bit_swaps, rank):
     mask_bit_string, mask_ordering = [], []
     assert len(mask_bit_string) == len(mask_ordering)
     n_swap_batches = cusv.dist_index_bit_swap_scheduler_set_index_bit_swaps(
-        ctx.handle, ctx.scheduler, index_bit_swaps, len(index_bit_swaps), mask_bit_string, mask_ordering, len(mask_bit_string)
+        ctx.handle,
+        ctx.scheduler,
+        index_bit_swaps,
+        len(index_bit_swaps),
+        mask_bit_string,
+        mask_ordering,
+        len(mask_bit_string),
     )
 
     for swap_batch_index in range(n_swap_batches):
         # get parameters
-        parameters = cusv.dist_index_bit_swap_scheduler_get_parameters(ctx.handle, ctx.scheduler, swap_batch_index, rank)
+        parameters = cusv.dist_index_bit_swap_scheduler_get_parameters(
+            ctx.handle, ctx.scheduler, swap_batch_index, rank
+        )
 
         # "rank == sub_sv_index" is assumed in the present sample.
         dst_rank = parameters.dst_sub_sv_index
-        cusv.sv_swap_worker_set_parameters(ctx.handle, ctx.swap_worker, parameters, dst_rank)
-        cusv.sv_swap_worker_execute(ctx.handle, ctx.swap_worker, 0, parameters.transfer_size)
+        cusv.sv_swap_worker_set_parameters(
+            ctx.handle, ctx.swap_worker, parameters, dst_rank
+        )
+        cusv.sv_swap_worker_execute(
+            ctx.handle, ctx.swap_worker, 0, parameters.transfer_size
+        )
 
     # synchronize all operations on device
     return
@@ -284,7 +329,9 @@ class CuStateVecMPIQAOASimulator(QAOAFastSimulatorGPUMPIBase):
         self,
         n_qubits: int,
         costs: typing.Optional[typing.Sequence[float]] = None,
-        terms: typing.Optional[typing.Sequence[typing.Tuple[float, typing.Sequence[int]]]] = None,
+        terms: typing.Optional[
+            typing.Sequence[typing.Tuple[float, typing.Sequence[int]]]
+        ] = None,
     ) -> None:
         """
         Args:
@@ -337,7 +384,6 @@ class CuStateVecMPIQAOASimulator(QAOAFastSimulatorGPUMPIBase):
 
     def _apply_swap(self, deviceptr):
         # compute n_global_index_bits from the size
-        # n_global_index_bits = log2(size)
         n_local_bits, n_p2p_bits, n_global_bits = self._get_topology()
         n_bits = sum([n_global_bits, n_local_bits, n_p2p_bits])
 
@@ -346,7 +392,9 @@ class CuStateVecMPIQAOASimulator(QAOAFastSimulatorGPUMPIBase):
         n_index_bit_swaps = n_global_bits + n_p2p_bits
         for idx in range(n_index_bit_swaps):
             index_bit_swaps.append((n_local_bits - 1 - idx, n_bits - idx - 1))
-        run_distributed_index_bit_swaps(self._nv_swap_context, index_bit_swaps, self._rank)
+        run_distributed_index_bit_swaps(
+            self._nv_swap_context, index_bit_swaps, self._rank
+        )
 
     @property
     def _sv_deviceptr(self):
@@ -377,8 +425,7 @@ class CuStateVecMPIQAOASimulator(QAOAFastSimulatorGPUMPIBase):
             )
 
         # -- apply global gates
-        # print(f"Before swap {self._rank=}, {self._sv_device[:16].copy_to_host()}")
-        start = time.time()
+        time.time()
         self._apply_swap(self._sv_deviceptr)
         n_local_bits, n_p2p_bits, n_global_bits = self._get_topology()
         n_index_bit_swaps = n_global_bits + n_p2p_bits
@@ -408,7 +455,9 @@ class CuStateVecMPIQAOASimulator(QAOAFastSimulatorGPUMPIBase):
 
     def _apply_qaoa_gates(self, gammas, betas):
         for gamma, beta in zip(gammas, betas):
-            apply_diagonal_gates(self._sv_deviceptr, gamma, self._terms, self.n_local_qubits)
+            apply_diagonal_gates(
+                self._sv_deviceptr, gamma, self._terms, self.n_local_qubits
+            )
             self._apply_mixer(beta)
 
     def __del__(self):

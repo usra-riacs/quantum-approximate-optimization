@@ -5,7 +5,11 @@
 # pyright: reportGeneralTypeIssues=false
 # pyright seems to be upset about numba code
 import numba.cuda
-from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import _GLOBAL_GRID_SIZE
+
+from quapopt.additional_packages.qokit.fur.nbcuda.fbm_monkey_patch import (
+    _GLOBAL_GRID_SIZE,
+)
+
 
 @numba.cuda.jit
 def zero_init_kernel(x):
@@ -31,13 +35,9 @@ def compute_costs_kernel(costs, coef: float, pos_mask: int, offset: int):
             costs[tid] += coef
 
 
-def compute_costs(rank: int,
-                  n_local_qubits: int,
-                  terms, 
-                  out,
-                  first_qubit_first_bit = True
-                  ):
-    #print("FIRST QUBIT FIRST BIT", first_qubit_first_bit)
+def compute_costs(
+    rank: int, n_local_qubits: int, terms, out, first_qubit_first_bit=True
+):
 
     offset = rank << n_local_qubits
     n = len(out)
@@ -45,10 +45,9 @@ def compute_costs(rank: int,
 
     if first_qubit_first_bit:
         for coef, pos in terms:
-            pos_mask = sum(2**(n_local_qubits-x-1) for x in pos)
+            pos_mask = sum(2 ** (n_local_qubits - x - 1) for x in pos)
             compute_costs_kernel.forall(n)(out, coef, pos_mask, offset)
     else:
         for coef, pos in terms:
             pos_mask = sum(2**x for x in pos)
             compute_costs_kernel.forall(n)(out, coef, pos_mask, offset)
-

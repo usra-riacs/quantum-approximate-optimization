@@ -4,10 +4,11 @@
 ###############################################################################
 # QAOA circuit for MAXCUT
 
-import networkx as nx
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
-from qiskit.circuit import ParameterVector
 from typing import Sequence
+
+import networkx as nx
+from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
+from qiskit.circuit import ParameterVector
 
 
 def append_zz_term(qc, q1, q2, gamma):
@@ -31,7 +32,14 @@ def append_mixer_operator_circuit(qc, G, beta):
         append_x_term(qc, n, beta)
 
 
-def get_qaoa_circuit(G: nx.Graph, gammas: Sequence, betas: Sequence, save_statevector: bool = True, qr: QuantumRegister = None, cr: ClassicalRegister = None):
+def get_qaoa_circuit(
+    G: nx.Graph,
+    gammas: Sequence,
+    betas: Sequence,
+    save_statevector: bool = True,
+    qr: QuantumRegister = None,
+    cr: ClassicalRegister = None,
+):
     """Generates a circuit for weighted MaxCut on graph G.
     Parameters
     ----------
@@ -80,7 +88,12 @@ def get_qaoa_circuit(G: nx.Graph, gammas: Sequence, betas: Sequence, save_statev
 
 
 def get_parameterized_qaoa_circuit(
-    G: nx.Graph, p: int, save_statevector: bool = True, qr: QuantumRegister = None, cr: ClassicalRegister = None, return_parameter_vectors: bool = False
+    G: nx.Graph,
+    p: int,
+    save_statevector: bool = True,
+    qr: QuantumRegister = None,
+    cr: ClassicalRegister = None,
+    return_parameter_vectors: bool = False,
 ):
     """Generates a parameterized circuit for weighted MaxCut on graph G.
     This version is recommended for long circuits

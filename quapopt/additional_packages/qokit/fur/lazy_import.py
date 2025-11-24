@@ -19,7 +19,9 @@ class LasyModule:
             except (ImportError, ModuleNotFoundError):
                 if not self.printed_could_not_import:
                     self.printed_could_not_import = True
-                    warnings.warn(f"LazyModule: {self.modulename} is missing.", ImportWarning)
+                    warnings.warn(
+                        f"LazyModule: {self.modulename} is missing.", ImportWarning
+                    )
                 raise
         return self.module.__getattribute__(attr)
 

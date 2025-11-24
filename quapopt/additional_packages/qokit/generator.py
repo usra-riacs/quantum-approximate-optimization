@@ -2,11 +2,12 @@
 # // SPDX-License-Identifier: Apache-2.0
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
-import numpy as np
-import networkx as nx
 import random
 from itertools import combinations
 from typing import Optional
+
+import networkx as nx
+import numpy as np
 
 
 def get_energy_term_indices_SK(N: int, seed: Optional[int] = None):
@@ -57,7 +58,9 @@ def get_graph_SK(N: int, seed: Optional[int] = None):
     return G
 
 
-def get_energy_term_indices_max_q_xor(N: int, q: int, d: int, seed: Optional[int] = None):
+def get_energy_term_indices_max_q_xor(
+    N: int, q: int, d: int, seed: Optional[int] = None
+):
     """Return indices of Pauli Zs and coefficients in front of them
     for the Max-q-XORSAT on a random Erdos-Renyi directed multi-hypergraph problem
     Follows the definition at the bottom of page 4 of http://arxiv.org/abs/2204.10306v2

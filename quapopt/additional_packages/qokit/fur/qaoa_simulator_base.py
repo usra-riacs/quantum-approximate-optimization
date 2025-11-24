@@ -3,10 +3,12 @@
 # // Copyright : JP Morgan Chase & Co
 ###############################################################################
 from __future__ import annotations
-import typing
-import numpy as np
-from abc import ABC, abstractmethod
+
 import sys
+import typing
+from abc import ABC, abstractmethod
+
+import numpy as np
 
 # Terms are a list of tuples (coeff, [qubit indices])
 # Run this only for python> 3.9
@@ -130,7 +132,9 @@ class QAOAFastSimulatorBase(ABC):
     # -- Output methods
 
     @abstractmethod
-    def get_expectation(self, result, costs: typing.Any = None, optimization_type="min", **kwargs) -> float:
+    def get_expectation(
+        self, result, costs: typing.Any = None, optimization_type="min", **kwargs
+    ) -> float:
         """
         Return the expectation value of the cost Hamiltonian
 
@@ -144,7 +148,12 @@ class QAOAFastSimulatorBase(ABC):
 
     @abstractmethod
     def get_overlap(
-        self, result, costs: CostsType | None = None, indices: np.ndarray | Sequence[int] | None = None, optimization_type="min", **kwargs
+        self,
+        result,
+        costs: CostsType | None = None,
+        indices: np.ndarray | Sequence[int] | None = None,
+        optimization_type="min",
+        **kwargs,
     ) -> float:
         """
         Return the overlap between the lowest energy state and the statevector

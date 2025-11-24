@@ -4,7 +4,6 @@
 ###############################################################################
 from pathlib import Path
 
-
 code_dir = Path(__file__).parent
 libpath = code_dir / "libcsim.so"
 
