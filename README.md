@@ -164,10 +164,12 @@ We plan to add more tutorials in the future.
 The following bibtex entry can be used to cite this repository:
 
 @misc{quapopt_repo,
-url={https://github.com/usra-riacs/quantum-approximate-optimization}, 
-title = {quapopt -- open source GitHub repository for quantum approximate optimization},
-author={Maciejewski, F. B. and Bach, B. G., and Biamonte, J. and Hadfield, S.A. and Venturelli, D.}, 
-year={2025}, }
+  author = {Maciejewski, F. B. and Bach, B. G. and Biamonte, J. and Hadfield, S.A. and Venturelli, D.},
+  title = {quapopt -- open source {G}it{H}ub repository for quantum approximate optimization},
+ doi={https://github.com/usra-riacs/quantum-approximate-optimization},
+howpublished={\url{https://github.com/usra-riacs/quantum-approximate-optimization}},
+  year = {2025}
+}
 
 ## Funding 
 Development of significant parts of the repository was supported under the NSF awards #2329097 and #1918549.
