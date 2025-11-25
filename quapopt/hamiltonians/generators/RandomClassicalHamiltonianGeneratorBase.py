@@ -246,7 +246,7 @@ class RandomClassicalHamiltonianGeneratorBase:
                 hamiltonian_class_specifier=hamiltonian_class_specifier,
             )
         except FileNotFoundError:
-            print("File not found!")
+            #print("File not found!")
             return None
 
     # def get_class_and_instance_descriptions(self,
@@ -300,8 +300,6 @@ class RandomClassicalHamiltonianGeneratorBase:
             )
             if hamiltonian is not None:
                 return hamiltonian
-            else:
-                print("FILE NOT FOUND!")
 
         if number_of_qubits > 500:
             print("Generating new instance.")
