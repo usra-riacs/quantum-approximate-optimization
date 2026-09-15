@@ -174,8 +174,10 @@ cython_debug/
 ./output/
 
 
-
-
+#AGENTS
+.claude/
+.claudeignore
+.codex/
 
 
 
@@ -184,3 +186,6 @@ cython_debug/
 /np_metric_quantification/
 /ancillary_functions_usra/
 /notebooks/exploration/
+notebooks/**/temp/
+.claude/tmp/
+.claude/worktrees/
