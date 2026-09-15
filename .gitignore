@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# Cython-generated sources: rebuilt from the .pyx files by `pixi run build_cpp`
+**/cython_implementation/*.c
+**/cython_implementation/*.cpp
+**/_efficient_math_cython/*.c
+**/_efficient_math_cython/*.cpp
+
 # Distribution / packaging
 .Python
 build/
