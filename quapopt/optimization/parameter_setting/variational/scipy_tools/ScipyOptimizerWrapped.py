@@ -1,6 +1,5 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
 
 from typing import List, Tuple, Dict, Any, Union
 
@@ -9,9 +8,6 @@ from scipy import optimize as scopt
 
 from quapopt.optimization import OptimizationResult
 from quapopt.optimization.parameter_setting import OptimizerType
-
-
-
 
 __SCIPY_SOLVERS_LOCAL_TYPES = {'no_grad': {'bounds': ['nelder-mead', 'powell', 'cobyqa'],
                                            'no_bounds': ['cobyla']},
@@ -59,18 +55,20 @@ class ScipyOptimizerWrapped:
                  ):
 
         if starting_point is None:
-            starting_point = [np.mean([bound[0], bound[1]]) + 0.01 for bound in parameters_bounds]
+            starting_point = [float(np.mean([bound[0], bound[1]])) + 0.0001 for bound in parameters_bounds]
 
         if optimizer_name is None:
             optimizer_name = 'COBYQA'
 
         if optimizer_kwargs is None:
             optimizer_kwargs = {'options': {}}
-            if optimizer_name.lower() == 'cobyla':
+            if optimizer_name.lower() == 'cobyqa':
                 optimizer_kwargs = {'options': {'disp': False,
                                                 'maxiter': 100,
-                                                'catol': 1e-2,
-
+                                                'maxfev': 100,
+                                                'initial_tr_radius': 0.01,
+                                                'final_tr_radius':10e-6,
+                                                'scale':False,
                                                 }, }
             elif optimizer_name.lower() == 'powell':
                 optimizer_kwargs = {'options': {'disp': False,
@@ -81,6 +79,12 @@ class ScipyOptimizerWrapped:
 
         optimizer_kwargs['method'] = optimizer_name
         optimizer_kwargs['bounds'] = parameters_bounds
+
+        #if 'options' in optimizer_kwargs.keys():
+           # optimizer_kwargs['options']['bounds'] = parameters_bounds
+
+
+
 
         if basinhopping:
             if basinhopping_kwargs is None:
@@ -137,24 +141,37 @@ class ScipyOptimizerWrapped:
             # This is number of function calls per basinhopping iterations
             number_of_function_calls = int(number_of_function_calls // number_of_iterations)
             basinhopping_kwargs_run['disp'] = verbosity > 0
-            basinhopping_kwargs_run['seed'] = optimizer_seed
+            # None means "keep the configured seed", never "reseed from entropy": basinhopping
+            # takes random displacement steps, so an unseeded run makes the angle search
+            # irreproducible. Callers that name a seed still override the configured one.
+            if optimizer_seed is not None:
+                basinhopping_kwargs_run['seed'] = optimizer_seed
 
         optimizer_kwargs_run = self._optimizer_kwargs.copy()
         if self._optimizer_name.lower() in ['cobyla']:
             optimizer_kwargs_run['options']['maxiter'] = number_of_function_calls
             optimizer_kwargs_run['options']['disp'] = verbosity
+
+
+
         elif self._optimizer_name.lower() in ['nelder-mead', 'powell', 'cobyqa']:
             optimizer_kwargs_run['options']['maxfev'] = number_of_function_calls
+            optimizer_kwargs_run['options']['maxiter'] = number_of_function_calls
             optimizer_kwargs_run['options']['disp'] = verbosity > 0
+
+
+
+
         else:
             raise ValueError("Optimizer not supported:", self._optimizer_name)
+
+
 
         if self._basinhopping:
             res = scopt.basinhopping(func=objective_function,
                                      **basinhopping_kwargs_run,
                                      minimizer_kwargs=optimizer_kwargs_run)
         else:
-            # print(optimizer_kwargs_run)
             res = scopt.minimize(fun=objective_function,
                                  **optimizer_kwargs_run,
 

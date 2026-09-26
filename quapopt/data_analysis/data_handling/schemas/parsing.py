@@ -1,41 +1,32 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
 """
 Description string parsing and reconstruction functionality.
 
-This module provides functions to parse standardized description strings back into
-their corresponding specifier objects, enabling automatic reconstruction of
+This module provides functions to parse standardized description strings back into 
+their corresponding specifier objects, enabling automatic reconstruction of 
 Hamiltonian class and instance specifiers from their string representations.
 """
 
 import ast
 
+import pandas as pd
+
 from quapopt.data_analysis.data_handling.schemas.naming import (
-    ERDOS_RENYI_TYPES,
-    MAIN_KEY_SEPARATOR,
-    MAIN_KEY_VALUE_SEPARATOR,
-    STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS,
-    STANDARD_NAMES_VARIABLES,
-    SUB_KEY_SEPARATOR,
-    SUB_KEY_VALUE_SEPARATOR,
-    CoefficientsDistribution,
+    MAIN_KEY_SEPARATOR, MAIN_KEY_VALUE_SEPARATOR, SUB_KEY_SEPARATOR, SUB_KEY_VALUE_SEPARATOR,
+    STANDARD_NAMES_VARIABLES, STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS,
+    HamiltonianModels, ERDOS_RENYI_TYPES, CoefficientsType, CoefficientsDistribution,
     CoefficientsDistributionSpecifier,
-    CoefficientsType,
-    HamiltonianClassSpecifierErdosRenyi,
-    HamiltonianClassSpecifierLABS,
-    HamiltonianClassSpecifierMaxCut,
-    HamiltonianClassSpecifierMAXkSAT,
-    HamiltonianClassSpecifierRegular,
-    HamiltonianClassSpecifierSK,
-    HamiltonianClassSpecifierWishartPlantedEnsemble,
-    HamiltonianInstanceSpecifierGeneral,
-    HamiltonianModels,
+    HamiltonianClassSpecifierErdosRenyi, HamiltonianClassSpecifierMaxCut,
+    HamiltonianClassSpecifierSK, HamiltonianClassSpecifierRegular,
+    HamiltonianClassSpecifierMAX2SAT, HamiltonianClassSpecifierWishartPlantedEnsemble,
+    HamiltonianClassSpecifierLABS, HamiltonianInstanceSpecifierGeneral,
+    HamiltonianClassSpecifierMIMO, ALL_NAMES_COLLECTIONS
 )
 
 
-def _find_matching_base_name_value(value_string: str, standard_names_collection):
+def _find_matching_base_name_value(value_string: str, standard_names_collection=None):
     """
     Find a matching BaseName value from a standard names collection using standardized lookup.
 
@@ -46,12 +37,26 @@ def _find_matching_base_name_value(value_string: str, standard_names_collection)
     Returns:
         Matching BaseName instance or None if not found
     """
-    # Use the existing detect_base_name functionality
-    detected = standard_names_collection.detect_base_name(value_string)
-    return detected
+
+    # Use the existing detect_base_name functionality to find the matching BaseName instance across all collections if not specified
+    if standard_names_collection is None:
+        collections_list = ALL_NAMES_COLLECTIONS
+    else:
+        if isinstance(standard_names_collection, list):
+            collections_list = standard_names_collection.copy()
+        else:
+            collections_list = [standard_names_collection]
+
+    for collection in collections_list:
+        detected = collection.detect_base_name(value_string)
+        if detected is not None:
+            return detected
+
+    return None
 
 
-def parse_description_string(description: str) -> dict:
+def parse_description_string(description: str,
+                             return_base_names:bool=False) -> dict:
     """
     Parse a description string back into a dictionary of field names and values.
 
@@ -85,6 +90,10 @@ def parse_description_string(description: str) -> dict:
 
         # Parse the value based on its format
         parsed_value = _parse_value(value)
+
+        if return_base_names:
+            parsed_value = (parsed_value, detected_name)
+
         result[field_name] = parsed_value
 
     return result
@@ -93,6 +102,7 @@ def parse_description_string(description: str) -> dict:
 def _parse_value(value: str):
     """Parse a value string into its appropriate Python type."""
     # Handle sub-key-value pairs (e.g., "CT~DIS_CDN~UNI_CDP~values~[-1, 1]")
+    #TODO(FBM): refactor this monstrosity
     if SUB_KEY_VALUE_SEPARATOR in value:
         sub_dict = {}
         sub_pairs = value.split(SUB_KEY_SEPARATOR)
@@ -107,10 +117,7 @@ def _parse_value(value: str):
                 # Check if the next element should be part of this value
                 # This handles cases like "CDP~values~[-1, 1]" where we split by _ but
                 # "values~[-1, 1]" should be parsed as "values": [-1, 1]
-                if (
-                    i + 1 < len(sub_pairs)
-                    and SUB_KEY_VALUE_SEPARATOR not in sub_pairs[i + 1]
-                ):
+                if i + 1 < len(sub_pairs) and SUB_KEY_VALUE_SEPARATOR not in sub_pairs[i + 1]:
                     # The next part is likely a continuation of this value
                     sub_value = sub_value + SUB_KEY_SEPARATOR + sub_pairs[i + 1]
                     i += 1  # Skip the next element since we consumed it
@@ -121,9 +128,7 @@ def _parse_value(value: str):
                     nested_parts = sub_value.split(SUB_KEY_VALUE_SEPARATOR)
                     if len(nested_parts) == 2:
                         nested_key, nested_value = nested_parts
-                        sub_dict[sub_key] = {
-                            nested_key: _parse_simple_value(nested_value)
-                        }
+                        sub_dict[sub_key] = {nested_key: _parse_simple_value(nested_value)}
                     else:
                         sub_dict[sub_key] = _parse_simple_value(sub_value)
                 else:
@@ -137,14 +142,14 @@ def _parse_value(value: str):
 def _parse_simple_value(value: str):
     """Parse a simple value string into its Python type."""
     # Handle tuples like "(2,)" or "(1, 2)"
-    if value.startswith("(") and value.endswith(")"):
+    if value.startswith('(') and value.endswith(')'):
         try:
             return ast.literal_eval(value)
         except (ValueError, SyntaxError):
             pass
 
     # Handle lists like "[-1, 1]"
-    if value.startswith("[") and value.endswith("]"):
+    if value.startswith('[') and value.endswith(']'):
         try:
             return ast.literal_eval(value)
         except (ValueError, SyntaxError):
@@ -152,7 +157,7 @@ def _parse_simple_value(value: str):
 
     # Handle numbers
     try:
-        if "." in value:
+        if '.' in value:
             return float(value)
         else:
             return int(value)
@@ -179,68 +184,66 @@ def reconstruct_hamiltonian_class_specifier(class_description: str):
     _SNH = STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS
 
     # Extract Hamiltonian model name using standardized field names
-    hamiltonian_model_name = class_data.get(
-        _SNH.HamiltonianModelName.id_long, class_data.get(_SNH.HamiltonianModelName.id)
-    )
+    hamiltonian_model_name = class_data.get(_SNH.HamiltonianModelName.id_long,
+                                            class_data.get(_SNH.HamiltonianModelName.id))
 
     # Parse coefficients distribution if present
     coefficients_distribution_specifier = None
-    cfd_data = class_data.get(
-        _SNH.CoefficientsDistributionSpecifier.id_long,
-        class_data.get(_SNH.CoefficientsDistributionSpecifier.id),
-    )
+    cfd_data = class_data.get(_SNH.CoefficientsDistributionSpecifier.id_long,
+                              class_data.get(_SNH.CoefficientsDistributionSpecifier.id))
     if cfd_data and isinstance(cfd_data, dict):
-        coefficients_distribution_specifier = (
-            _reconstruct_coefficients_distribution_specifier(cfd_data)
-        )
+        coefficients_distribution_specifier = _reconstruct_coefficients_distribution_specifier(cfd_data)
 
     # Parse localities using standardized field names
-    localities = class_data.get(
-        _SNH.Localities.id_long, class_data.get(_SNH.Localities.id)
-    )
+    localities = class_data.get(_SNH.Localities.id_long, class_data.get(_SNH.Localities.id))
 
     # Parse Erdos-Renyi type if present using standardized field names
     erdos_renyi_type = None
-    ert_data = class_data.get(
-        _SNH.ErdosRenyiType.id_long, class_data.get(_SNH.ErdosRenyiType.id)
-    )
+    ert_data = class_data.get(_SNH.ErdosRenyiType.id_long, class_data.get(_SNH.ErdosRenyiType.id))
     if ert_data:
         # Use standardized name system to map string to enum
         erdos_renyi_type = _find_matching_base_name_value(ert_data, ERDOS_RENYI_TYPES)
 
     # Use standardized name system to determine Hamiltonian model
-    hamiltonian_model = _find_matching_base_name_value(
-        hamiltonian_model_name, HamiltonianModels
-    )
+    hamiltonian_model = _find_matching_base_name_value(hamiltonian_model_name, HamiltonianModels)
+
+
+
+
 
     # Create appropriate specifier based on model using standardized comparisons
     if hamiltonian_model == HamiltonianModels.ErdosRenyi:
         return HamiltonianClassSpecifierErdosRenyi(
             Localities=localities,
             CoefficientsDistributionSpecifier=coefficients_distribution_specifier,
-            ErdosRenyiType=erdos_renyi_type,
+            ErdosRenyiType=erdos_renyi_type
         )
     elif hamiltonian_model == HamiltonianModels.MaxCut:
         return HamiltonianClassSpecifierMaxCut(
             CoefficientsDistributionSpecifier=coefficients_distribution_specifier,
-            ErdosRenyiType=erdos_renyi_type,
+            ErdosRenyiType=erdos_renyi_type
         )
     elif hamiltonian_model == HamiltonianModels.SherringtonKirkpatrick:
         return HamiltonianClassSpecifierSK(
             Localities=localities,
-            CoefficientsDistributionSpecifier=coefficients_distribution_specifier,
+            CoefficientsDistributionSpecifier=coefficients_distribution_specifier
         )
     elif hamiltonian_model == HamiltonianModels.RegularGraph:
         return HamiltonianClassSpecifierRegular(
             Localities=localities,
-            CoefficientsDistributionSpecifier=coefficients_distribution_specifier,
+            CoefficientsDistributionSpecifier=coefficients_distribution_specifier
         )
-    elif hamiltonian_model == HamiltonianModels.MAXkSAT:
-        return HamiltonianClassSpecifierMAXkSAT()
+    elif hamiltonian_model == HamiltonianModels.MAX2SAT:
+        return HamiltonianClassSpecifierMAX2SAT()
     elif hamiltonian_model == HamiltonianModels.WishartPlantedEnsemble:
         return HamiltonianClassSpecifierWishartPlantedEnsemble()
     elif hamiltonian_model == HamiltonianModels.LABS:
         return HamiltonianClassSpecifierLABS()
+
+    elif hamiltonian_model == HamiltonianModels.MIMO:
+        return HamiltonianClassSpecifierMIMO()
+
+
     else:
         raise ValueError(f"Unknown hamiltonian model: {hamiltonian_model_name}")
 
@@ -250,6 +253,7 @@ def _reconstruct_coefficients_distribution_specifier(cfd_data: dict):
     # Parse coefficients type
     coefficients_type = None
     _SN = STANDARD_NAMES_VARIABLES
+    _SNH = STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS
 
     if STANDARD_NAMES_VARIABLES.CoefficientsType.id in cfd_data:
         ct_value = cfd_data[_SN.CoefficientsType.id]
@@ -259,9 +263,7 @@ def _reconstruct_coefficients_distribution_specifier(cfd_data: dict):
     coefficients_distribution_name = None
     if _SN.CoefficientsDistributionName.id in cfd_data:
         cdn_value = cfd_data[_SN.CoefficientsDistributionName.id]
-        coefficients_distribution_name = _find_matching_base_name_value(
-            cdn_value, CoefficientsDistribution
-        )
+        coefficients_distribution_name = _find_matching_base_name_value(cdn_value, CoefficientsDistribution)
 
     # Parse coefficients distribution properties
     coefficients_distribution_properties = {}
@@ -273,30 +275,31 @@ def _reconstruct_coefficients_distribution_specifier(cfd_data: dict):
             coefficients_distribution_properties = cdp_data
         else:
             # Handle case where CDP is a single value
-            coefficients_distribution_properties = {"value": cdp_data}
+            coefficients_distribution_properties = {'value': cdp_data}
 
     # Also check for any other properties not in the standard fields
     for key, val in cfd_data.items():
-        if key not in [
-            _SN.CoefficientsType.id,
-            _SN.CoefficientsDistributionName.id,
-            _SN.CoefficientsDistributionProperties.id,
-        ]:
+        if key not in [_SN.CoefficientsType.id,
+                       _SN.CoefficientsDistributionName.id,
+                       _SN.CoefficientsDistributionProperties.id]:
             coefficients_distribution_properties[key] = val
 
     if coefficients_type and coefficients_distribution_name:
         return CoefficientsDistributionSpecifier(
             CoefficientsType=coefficients_type,
             CoefficientsDistributionName=coefficients_distribution_name,
-            CoefficientsDistributionProperties=coefficients_distribution_properties,
+            CoefficientsDistributionProperties=coefficients_distribution_properties
         )
 
     return None
 
 
-def reconstruct_hamiltonian_instance_specifier(
-    instance_description: str, class_specifier
-):
+
+
+
+
+def reconstruct_hamiltonian_instance_specifier(instance_description: str,
+                                               class_specifier):
     """
     Reconstruct a HamiltonianInstanceSpecifier from its description string.
 
@@ -307,46 +310,58 @@ def reconstruct_hamiltonian_instance_specifier(
     Returns:
         Appropriate HamiltonianInstanceSpecifier instance
     """
+    import inspect
     # Parse the description string
     instance_data = parse_description_string(instance_description)
 
     # Extract common parameters using standardized names
     _SN = STANDARD_NAMES_VARIABLES
     _SNH = STANDARD_NAMES_HAMILTONIAN_DESCRIPTIONS
-    number_of_qubits = instance_data.get(
-        _SN.NumberOfQubits.id_long, instance_data.get(_SN.NumberOfQubits.id)
-    )
-    hamiltonian_instance_index = instance_data.get(
-        _SNH.HamiltonianInstanceIndex.id_long,
-        instance_data.get(_SNH.HamiltonianInstanceIndex.id),
-    )
-
-    # Check if we need EdgeProbabilityOrAmount
-    edge_probability_or_amount = instance_data.get(
-        _SNH.EdgeProbabilityOrAmount.id_long,
-        instance_data.get(_SNH.EdgeProbabilityOrAmount.id),
-    )
-
-    # Check if we need WishartDensity
-    wishart_density = instance_data.get(
-        _SNH.WishartDensity.id_long, instance_data.get(_SNH.WishartDensity.id)
-    )
 
     # Use the class specifier's instance_specifier_constructor if available
-    if hasattr(class_specifier, "instance_specifier_constructor"):
-        kwargs = {
-            _SN.NumberOfQubits.id_long: number_of_qubits,
-            _SNH.HamiltonianInstanceIndex.id_long: hamiltonian_instance_index,
-        }
-        if edge_probability_or_amount is not None:
-            kwargs[_SNH.EdgeProbabilityOrAmount.id_long] = edge_probability_or_amount
-        if wishart_density is not None:
-            kwargs[_SNH.WishartDensity.id_long] = wishart_density
+    if hasattr(class_specifier, 'instance_specifier_constructor'):
+        constructor = class_specifier.instance_specifier_constructor
+        constructor_params = inspect.signature(constructor).parameters
+        kwargs = {}
+        #let's go through all _SN and _SNH "id_long" and "id" and see if they match the arguments of "class_specifier.instance_specifier_constructor" method
+        for key, value in instance_data.items():
+            detected_name = _find_matching_base_name_value(key)
+            if detected_name is not None and detected_name.id_long in constructor_params:
+                kwargs[detected_name.id_long] = value
 
         return class_specifier.instance_specifier_constructor(**kwargs)
     else:
-        # Fallback to general instance specifier
-        return HamiltonianInstanceSpecifierGeneral(
-            NumberOfQubits=number_of_qubits,
-            HamiltonianInstanceIndex=hamiltonian_instance_index,
-        )
+        raise NotImplementedError(f"Class specifier {class_specifier} does not have an instance_specifier_constructor.")
+
+def _expand_hamiltonian_instance_specifier_dataframe_row(row:pd.Series):
+    _hid = row['HamiltonianInstanceDescription']
+    _hcd = row['HamiltonianClassDescription']
+
+    _ham_class_specifier = reconstruct_hamiltonian_class_specifier(class_description=_hcd)
+
+
+
+    _ham_instance_specifier = reconstruct_hamiltonian_instance_specifier(instance_description=_hid,
+                                                                        class_specifier=_ham_class_specifier)
+
+    for attribute_name, attribute_value in _ham_instance_specifier.__dict__.items():
+        if attribute_value is None:
+            continue
+        if attribute_name.startswith('_'):
+            continue
+        row[attribute_name] = attribute_value
+
+    return row
+def expand_hamiltonian_instance_specifier_dataframe(df:pd.DataFrame,
+                                                    drop_description_columns:bool=True) -> pd.DataFrame:
+
+    assert 'HamiltonianInstanceDescription' in df.columns, 'HamiltonianInstanceDescription column is missing from dataframe'
+    assert 'HamiltonianClassDescription' in df.columns, 'HamiltonianClassDescription column is missing from dataframe'
+
+    df_processed = df.apply(_expand_hamiltonian_instance_specifier_dataframe_row, axis=1)
+
+    if drop_description_columns:
+        df_processed = df_processed.drop(['HamiltonianInstanceDescription', 'HamiltonianClassDescription'], axis=1)
+
+    return df_processed
+

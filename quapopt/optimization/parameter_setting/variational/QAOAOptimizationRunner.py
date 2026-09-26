@@ -1,8 +1,8 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
 import time
-from typing import Union, List
+import warnings
+from typing import Union, List, Tuple
 
 import numpy as np
 import optuna
@@ -17,9 +17,11 @@ from quapopt.meta_algorithms.QRR import QRR_functions as qrr_fun
 from quapopt.optimization import OptimizationResult, BestResultsContainer
 from quapopt.optimization.QAOA import QAOAFunctionInputFormat as FIFormat
 from quapopt.optimization.QAOA.QAOARunnerBase import QAOARunnerBase
-from quapopt.optimization.QAOA.simulation.QAOARunnerExpValues import QAOARunnerExpValues
+from quapopt.optimization.QAOA.simulation.QAOARunnerExpValuesPauliBackprop import QAOARunnerExpValuesPauliBackprop
 from quapopt.optimization.parameter_setting import OptimizerType
-from quapopt.optimization.parameter_setting.non_adaptive_optimization.NonAdaptiveOptimizer import NonAdaptiveOptimizer
+from quapopt.optimization.parameter_setting.CustomOptimizer import CustomOptimizer
+from quapopt.optimization.parameter_setting.non_adaptive_optimization.SimpleGridOptimizer import SimpleGridOptimizer
+
 from quapopt.optimization.parameter_setting.variational.scipy_tools.ScipyOptimizerWrapped import ScipyOptimizerWrapped
 from quapopt.optimization.QAOA import QAOAResult
 from quapopt import ancillary_functions as anf
@@ -76,12 +78,39 @@ class QAOAOptimizationRunner:
     def qaoa_runner(self):
         return self._qaoa_runner
 
+    # @property
+    # def best_results_container(self):
+    #     return self._qaoa_runner._best_results_container
+    @staticmethod
+    def _transform_trials_to_df(trials_list: List[Tuple[int, float, float, np.ndarray]|list]) -> pd.DataFrame:
+        
+        
+        
+        #
+        #
+        # df_overview = pd.DataFrame(data={
+        #     'TrialIndex': trials_list[:][0],
+        #     'FunctionValue': trials_list[:][1],
+        #     'WallClockTime': trials_list[:][2],
+        #     "Arguments": trials_list[:][3],
+        # })
 
 
+
+        df_overview = pd.DataFrame(data={
+            'TrialIndex': [trials_list[i][0] for i in range(len(trials_list))],
+            'FunctionValue': [trials_list[i][1] for i in range(len(trials_list))],
+            'WallClockTime': [trials_list[i][2] for i in range(len(trials_list))],
+            "Arguments": [trials_list[i][3] for i in range(len(trials_list))],
+        })
+
+
+
+        return df_overview
     def run_optimization(self,
                          qaoa_depth: int,
                          number_of_function_calls: int,
-                         classical_optimizer=Union[NonAdaptiveOptimizer, ScipyOptimizerWrapped, BaseSamplerOptuna],
+                         classical_optimizer=Union[CustomOptimizer, ScipyOptimizerWrapped, BaseSamplerOptuna],
                          optimizer_seed=None,
                          run_id=None,
                          numpy_rng_sampling=None,
@@ -92,10 +121,13 @@ class QAOAOptimizationRunner:
                          optuna_pruner: optuna.pruners.BasePruner = None,
                          optuna_study_storage=None,
                          number_of_threads_optuna=1,
+                         cvar_fraction=1.0,
                          max_unimproving_iterations_optuna=None,
+                         additional_optimizer_kwargs=None,
+                         save_afterwards:bool=False,
                          **additional_kwargs):
 
-        if isinstance(classical_optimizer, NonAdaptiveOptimizer):
+        if isinstance(classical_optimizer, CustomOptimizer):
             classical_optimizer_type = OptimizerType.custom
             _opt_string = classical_optimizer.optimizer_name
         elif isinstance(classical_optimizer, ScipyOptimizerWrapped):
@@ -107,7 +139,8 @@ class QAOAOptimizationRunner:
         else:
             raise ValueError(f"Unknown optimizer type for object: {classical_optimizer}. Please provide a valid optimizer.")
 
-
+        if additional_optimizer_kwargs is None:
+            additional_optimizer_kwargs = {}
 
         # TODO FBM: add logging optimization metadata
         self._qaoa_runner.clear_optimization_history()
@@ -125,48 +158,86 @@ class QAOAOptimizationRunner:
             self.pbar =  tqdm(total=number_of_function_calls,
                             desc=_opt_string,
                             colour='yellow',
-                            position=1,
+                            position=0,
                               #close after finishing
-                             leave=False,
+                             leave=True,
                             )
+
+
+
+        def __arguments_processing_function(*args):
+            if isinstance(args, optuna.Trial):
+                args_formatted = list(args.params)
+            else:
+                args_formatted = np.array(args).tolist()
+
+            if classical_optimizer_type in [OptimizerType.custom]:
+                if len(args_formatted) == 1:
+                    if not isinstance(args_formatted[0], float):
+                        args_formatted = args_formatted[0]
+            elif classical_optimizer_type in [OptimizerType.scipy]:
+                if len(args_formatted) == 1:
+                    args_formatted = args_formatted[0]
+                else:
+                    raise ValueError("The arguments should be passed as a single tuple.")
+
+                #if len(args_formatted) != 2 * qaoa_depth:
+                   # raise ValueError("The number of arguments should be equal to 2*p, where p is the QAOA depth.")
+
+            return args_formatted
+
 
         def __create_time_tracking_objective(func):
             def __objective_function(*args):
-
                 t0 = time.perf_counter()
                 funval = func(*args)
                 t1 = time.perf_counter()
 
-                if isinstance(args,optuna.Trial):
-                    args_formatted = list(args.params)
-                else:
-                    args_formatted = np.array(args).tolist()
 
-                df_overview = pd.DataFrame(data={
-                    'TrialIndex': [self.trial_index],
-                    'FunctionValue': [funval],
-                    'WallClockTime': [t1 - t0],
-                    "Arguments":[args_formatted],
-                })
+                args_formatted = __arguments_processing_function(*args)
+
+                t2 = time.perf_counter()
+                df_overview_simplified = (self.trial_index, funval, t1 - t0, args_formatted)
 
 
+                self.trials.append(df_overview_simplified)
 
-                self.trial_index += 1
-                self.trials.append(df_overview)
-
-                if self.qaoa_runner.results_logger is not None:
+                if self.qaoa_runner.results_logger is not None and not save_afterwards:
                     if self.qaoa_runner.logging_level.value >= 1:
-                        self.qaoa_runner.results_logger.write_results(dataframe=df_overview,
+                        df_overview = pd.DataFrame(data={
+                            'TrialIndex': [self.trial_index],
+                            'FunctionValue': [funval],
+                            'WallClockTime': [t1 - t0],
+                            "Arguments":[args_formatted],
+                        })
+
+
+
+                        self.qaoa_runner.write_results(dataframe=df_overview,
                                                       data_type=SNDT.OptimizationOverviewAbstract)
+                t3 = time.perf_counter()
 
                 if self.pbar is not None:
                     self.pbar.update(1)
+                t4 = time.perf_counter()
 
                 if funval < self._global_minimum:
                     self._global_minimum = funval
 
+                    #if verbosity>=2:
                     if self.pbar is not None:
-                        self.pbar.set_postfix(BestCost=f"{funval:.4f}")
+                        self.pbar.set_postfix(BestCost=f"{funval:.5f}; t={self.trial_index}; "
+                                                   f"args={[float(np.round(x,5)) for x in args_formatted]}")
+
+                t5 = time.perf_counter()
+                self.trial_index += 1
+
+                # print("RUnning funval took:",t2-t1,"s", "iters per second:",1/(t2-t1))
+                # print("Time tracking took:",t3-t2,"s", "iters per second:",1/(t3-t2))
+                # print("Progress bar update took:",t4-t3,"s", "iters per second:",1/(t4-t3))
+                # print("Best cost update took:",t5-t4,"s", "iters per second:",1/(t5-t4))
+                #
+                # raise KeyboardInterrupt
 
                 return funval
             return __objective_function
@@ -181,6 +252,7 @@ class QAOAOptimizationRunner:
                                                                  measurement_noise=measurement_noise,
                                                                  numpy_rng_sampling=numpy_rng_sampling,
                                                                  input_format=FIFormat.optuna,
+                                                                 cvar_fraction=cvar_fraction,
                                                                  **additional_kwargs)
 
                 return energy_mean
@@ -207,33 +279,59 @@ class QAOAOptimizationRunner:
                                   n_trials=number_of_function_calls,
                                   n_jobs=number_of_threads_optuna,
                                   show_progress_bar=False,
-                                  callbacks=callbacks_optuna)
+                                  callbacks=callbacks_optuna,
+                                  **additional_optimizer_kwargs)
 
+            df_optuna = optuna_study.trials_dataframe()
+            names_map = {'value': 'FunctionValue'}
+            arg_counter = 0
+            for key in df_optuna.columns:
+                key_split = key.split('_')
+                if key_split[0] == 'params':
+                    names_map[key] = f'ARG-{arg_counter}'
+                    arg_counter += 1
+
+            df_optuna = df_optuna.rename(columns=names_map)
             optimizer_res = OptimizationResult(best_value=optuna_study.best_value,
                                                best_arguments=optuna_study.best_params,
-                                               trials_dataframe=None)
+                                               trials_dataframe=df_optuna)
             # TODO FBM: add adding the best QAOAResult object
 
 
         elif classical_optimizer_type in [OptimizerType.custom]:
+
+
+            if isinstance(classical_optimizer, SimpleGridOptimizer):
+                classical_optimizer = classical_optimizer.rebuild_instance_with_the_same_search_space(max_trials=number_of_function_calls)
+
+
             global trial_index
             trial_index = 0
             def __objective_function(*args):
-                energy_mean = self._qaoa_runner.run_qaoa_wrapped(*args,
+
+                t0 = time.perf_counter()
+                args_formatted = __arguments_processing_function(*args)
+                t1 = time.perf_counter()
+                energy_mean = self._qaoa_runner.run_qaoa_wrapped(*args_formatted,
                                                                  qaoa_depth=qaoa_depth,
                                                                  number_of_samples=number_of_samples,
                                                                  measurement_noise=measurement_noise,
                                                                  numpy_rng_sampling=numpy_rng_sampling,
-                                                                 input_format=FIFormat.direct_full,
+                                                                 input_format=None,
+                                                                 cvar_fraction=cvar_fraction,
                                                                  **additional_kwargs)
+                t2 = time.perf_counter()
+
+                #print("qaoa took:",t2-t1,"s", "iters per second:",1/(t2-t1))
 
 
                 return energy_mean
 
             optimizer_res = classical_optimizer.run_optimization(objective_function=__create_time_tracking_objective(__objective_function),
                                                                  number_of_function_calls=number_of_function_calls,
-                                                                 verbosity=verbosity,
-                                                                 show_progress_bar=False
+                                                                 verbosity=0,
+                                                                 show_progress_bar=False,
+                                                                 **additional_optimizer_kwargs
 
                                                                  )
 
@@ -245,36 +343,31 @@ class QAOAOptimizationRunner:
             _trials_counter = 0
 
             if classical_optimizer is None:
-                classical_optimizer = ScipyOptimizerWrapped(parameters_bounds=[(-np.pi, np.pi)] * (qaoa_depth * 2),
+                classical_optimizer = ScipyOptimizerWrapped(parameters_bounds=[(-np.pi, np.pi)] * qaoa_depth + [(-np.pi/2,np.pi/2)]*qaoa_depth,
                                                             optimizer_name='COBYQA',
                                                             optimizer_kwargs={'options': {'disp': False,
                                                                                           'maxiter': number_of_function_calls,
-                                                                                          'catol': 1e-2,
-                                                                                          'rhobeg': 0.1
+                                                                                          'maxfev':number_of_function_calls,
+
                                                                                           }, },
-                                                            starting_point=np.array([0.1] * (qaoa_depth * 2)),
+                                                            starting_point=np.array([0.01] * (qaoa_depth * 2)),
                                                             basinhopping=False,
                                                             basinhopping_kwargs=None
 
                                                             )
 
-
             def __objective_function(*args):
 
-                if len(args) == 1:
-                    args = args[0]
-                else:
-                    raise ValueError("The arguments should be passed as a single tuple.")
+                args_formatted = __arguments_processing_function(*args)
 
-                if len(args) != 2 * qaoa_depth:
-                    raise ValueError("The number of arguments should be equal to 2*p, where p is the QAOA depth.")
 
-                energy_mean = self._qaoa_runner.run_qaoa_wrapped(*args,
+                energy_mean = self._qaoa_runner.run_qaoa_wrapped(*args_formatted,
                                                                  qaoa_depth=qaoa_depth,
                                                                  number_of_samples=number_of_samples,
                                                                  measurement_noise=measurement_noise,
                                                                  numpy_rng_sampling=numpy_rng_sampling,
-                                                                 input_format=FIFormat.direct_full,
+                                                                 input_format=None,
+                                                                 cvar_fraction=cvar_fraction,
                                                                  **additional_kwargs)
                 energy_mean = float(energy_mean)
 
@@ -282,8 +375,9 @@ class QAOAOptimizationRunner:
 
             optimizer_res = classical_optimizer.run_optimization(objective_function=__create_time_tracking_objective(__objective_function),
                                                                  number_of_function_calls=number_of_function_calls,
-                                                                 verbosity=verbosity,
-                                                                 optimizer_seed=optimizer_seed)
+                                                                 verbosity=0,
+                                                                 optimizer_seed=optimizer_seed,
+                                                                 **additional_optimizer_kwargs)
 
 
             if show_progress_bar:
@@ -296,8 +390,21 @@ class QAOAOptimizationRunner:
             # TODO(FBM): add pytorch_implementation and tensorflow optimizers
             raise ValueError("Unknown optimizer type.")
 
-        df_overview = pd.concat(self.trials, axis=0, ignore_index=True)
+
+        t0 = time.perf_counter()
+        # df_overview = pd.concat(self.trials, axis=0, ignore_index=True)
+        df_overview = self._transform_trials_to_df(trials_list=self.trials)
+
         optimizer_res._trials_dataframe = df_overview
+
+        t1 = time.perf_counter()
+
+        #print("putting df together took:",t1-t0)
+        if save_afterwards and self.qaoa_runner.results_logger is not None:
+            if self.qaoa_runner.logging_level.value >= 1:
+                self.qaoa_runner.write_results(dataframe=df_overview,
+                                               data_type=SNDT.OptimizationOverviewAbstract)
+
 
         return self._qaoa_runner.get_best_results(), optimizer_res
 
@@ -334,7 +441,7 @@ class QAOAOptimizationRunner:
         if store_n_best_solutions != 1:
             best_results_container = BestResultsContainer(number_of_best_results=store_n_best_solutions, )
 
-        if isinstance(qaoa_sampler, QAOARunnerExpValues):
+        if isinstance(qaoa_sampler, QAOARunnerExpValuesPauliBackprop):
 
             if len(optimization_history) == 0:
                 print(
@@ -454,3 +561,134 @@ class QAOAOptimizationRunner:
             # TODO(FBM): implement this for other QAOA runners
             raise NotImplementedError("This method is only implemented for QAOARunnerExpValues as of now.")
 
+
+    def estimate_gradient_finite_differences(self,
+                                            angles: Union[List[float], np.ndarray],
+                                            qaoa_depth: int,
+                                            epsilon: float = 1e-5,
+                                            number_of_samples: int = None,
+                                            measurement_noise: ClassicalMeasurementNoiseSampler = None,
+                                            numpy_rng_sampling: np.random.Generator = None,
+                                            cvar_fraction: float = 1.0,
+                                            method: str = 'central',
+                                            **additional_kwargs) -> np.ndarray:
+        """
+        Estimate gradient using finite differences method.
+
+        This method computes numerical gradients by perturbing each parameter
+        independently and evaluating the cost function. Useful for gradient-based
+        optimization with noisy/sampled objective functions.
+
+        :param angles: Current QAOA angles (gammas + betas), shape (2*qaoa_depth,)
+        :type angles: Union[List[float], np.ndarray]
+        :param qaoa_depth: QAOA circuit depth
+        :type qaoa_depth: int
+        :param epsilon: Perturbation size for finite differences
+        :type epsilon: float
+        :param number_of_samples: Number of measurement samples (None for exact)
+        :type number_of_samples: int, optional
+        :param measurement_noise: Classical measurement noise model
+        :type measurement_noise: ClassicalMeasurementNoiseSampler, optional
+        :param numpy_rng_sampling: Random number generator for sampling
+        :type numpy_rng_sampling: np.random.Generator, optional
+        :param cvar_fraction: CVaR fraction for risk-aware optimization
+        :type cvar_fraction: float
+        :param method: 'forward', 'central', or 'backward' finite differences
+        :type method: str
+        :param additional_kwargs: Additional keyword arguments passed to run_qaoa_wrapped
+        :return: Gradient estimate, shape (2*qaoa_depth,)
+        :rtype: np.ndarray
+
+        Example:
+            runner = QAOAOptimizationRunner(qaoa_runner)
+            angles = np.array([0.5, 1.0, 0.3, 0.8])  # depth=2
+            gradient = runner.estimate_gradient_finite_differences(
+                angles=angles,
+                qaoa_depth=2,
+                epsilon=1e-4,
+                number_of_samples=1000
+            )
+
+        .. note::
+            - Forward: g[i] ≈ (f(x+ε·eᵢ) - f(x)) / ε  [1 eval per parameter]
+            - Central: g[i] ≈ (f(x+ε·eᵢ) - f(x-ε·eᵢ)) / (2ε)  [2 evals per parameter]
+            - Backward: g[i] ≈ (f(x) - f(x-ε·eᵢ)) / ε  [1 eval per parameter]
+
+            Central differences are more accurate but require 2x evaluations.
+            - On a runner that computes in single precision (`computes_in_single_precision`:
+              precision='single' for the statevector runners, precision_float=np.float32 for the
+              expectation-values runners, always for the RDM runner), an exact gradient
+              (number_of_samples=None) with a step below 1e-3 gives errors of about 1e-3 to
+              9e-3 relative, or 1e-4 to 1e-3 with renormalize_probabilities=True, and can flip
+              the sign of small components; the method warns. Use epsilon >= 1e-3, or a double
+              precision runner. With shots, shot noise dominates and the method does not warn.
+        """
+        exact = number_of_samples in (None, np.inf)
+        if exact and epsilon < 1e-3 and getattr(self._qaoa_runner, 'computes_in_single_precision', False):
+            warnings.warn(f"estimate_gradient_finite_differences: epsilon = {epsilon:g} on a runner that computes "
+                          f"in single precision. Its rounding gives gradient errors of about 1e-3 to "
+                          f"9e-3 relative at steps below 1e-3, or 1e-4 to 1e-3 with renormalize_probabilities=True, "
+                          f"and can flip the sign of small components. Use "
+                          f"epsilon >= 1e-3, or build the runner with precision='double' "
+                          f"(precision_float=np.float64 for the expectation-values runners).",
+                          stacklevel=2)
+        angles = np.array(angles)
+        n_params = len(angles)
+        gradient = np.zeros(n_params)
+
+        if method not in ['forward', 'central', 'backward']:
+            raise ValueError(f"Invalid method '{method}'. Choose from: 'forward', 'central', 'backward'")
+
+        # Evaluate at current point (needed for forward/backward)
+        if method in ['forward', 'backward']:
+            f_current = self._qaoa_runner.run_qaoa_wrapped(
+                *angles,
+                qaoa_depth=qaoa_depth,
+                number_of_samples=number_of_samples,
+                measurement_noise=measurement_noise,
+                numpy_rng_sampling=numpy_rng_sampling,
+                input_format=None,
+                cvar_fraction=cvar_fraction,
+                **additional_kwargs
+            )
+
+        # Compute gradient for each parameter
+        for i in range(n_params):
+            angles_plus = angles.copy()
+            angles_plus[i] += epsilon
+
+            f_plus = self._qaoa_runner.run_qaoa_wrapped(
+                *angles_plus,
+                qaoa_depth=qaoa_depth,
+                number_of_samples=number_of_samples,
+                measurement_noise=measurement_noise,
+                numpy_rng_sampling=numpy_rng_sampling,
+                input_format=None,
+                cvar_fraction=cvar_fraction,
+                **additional_kwargs
+            )
+
+            if method == 'forward':
+                gradient[i] = (f_plus - f_current) / epsilon
+
+            elif method == 'central':
+                angles_minus = angles.copy()
+                angles_minus[i] -= epsilon
+
+                f_minus = self._qaoa_runner.run_qaoa_wrapped(
+                    *angles_minus,
+                    qaoa_depth=qaoa_depth,
+                    number_of_samples=number_of_samples,
+                    measurement_noise=measurement_noise,
+                    numpy_rng_sampling=numpy_rng_sampling,
+                    input_format=None,
+                    cvar_fraction=cvar_fraction,
+                    **additional_kwargs
+                )
+
+                gradient[i] = (f_plus - f_minus) / (2 * epsilon)
+
+            elif method == 'backward':
+                gradient[i] = (f_current - f_plus) / epsilon
+
+        return gradient

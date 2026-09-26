@@ -1,21 +1,20 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
-import copy
-import time
 import uuid
-from multiprocessing import Pool
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
+from typing import Optional, Tuple, List, Any, Union, Dict, Callable
+import copy
 import numpy as np
 import pandas as pd
+import time
 from tqdm.notebook import tqdm
 from tqdm.notebook import tqdm as tqdm_notebook
-
+from multiprocessing import Pool
+import os
+from pathlib import Path
 
 def create_random_uuid() -> str:
-    return "".join(str(uuid.uuid4()).split("-"))
+    return ''.join(str(uuid.uuid4()).split('-'))
 
 
 def get_current_date_time() -> str:
@@ -25,25 +24,21 @@ def get_current_date_time() -> str:
     return time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
 
 
-def get_current_date() -> str:
+def get_current_date()-> str:
     """
     Returns the current date as a string in the format YYYY-MM-DD.
     """
     return time.strftime("%Y-%m-%d", time.localtime())
 
-
-def get_current_time() -> str:
+def get_current_time()->str:
     """
     Returns the current time as a string in the format HH-MM-SS.
     """
     return time.strftime("%H-%M-%S", time.localtime())
 
-
-def convert_int_to_binary_tuple(
-    integer: int,
-    number_of_bits: Optional[int] = None,
-    return_as_list: Optional[bool] = False,
-) -> Tuple[int, ...]:
+def convert_int_to_binary_tuple(integer: int,
+                                number_of_bits: Optional[int] = None,
+                                return_as_list: Optional[bool] = False) -> Tuple[int, ...]:
     """
     This function takes an integer and returns its binary representation as a tuple.
     :param integer:
@@ -52,9 +47,7 @@ def convert_int_to_binary_tuple(
     :return:
     """
 
-    tuple_representation = tuple(
-        int((integer >> i) & 1) for i in range(number_of_bits - 1, -1, -1)
-    )
+    tuple_representation = tuple(int((integer >> i) & 1) for i in range(number_of_bits - 1, -1, -1))
 
     if not return_as_list:
         tuple_representation = tuple(tuple_representation)
@@ -62,9 +55,7 @@ def convert_int_to_binary_tuple(
     return tuple_representation
 
 
-def convert_binary_tuple_to_integer(
-    binary_tuple: Union[Tuple[int, ...], List[int]],
-) -> int:
+def convert_binary_tuple_to_integer(binary_tuple: Union[Tuple[int, ...], List[int]]) -> int:
     """
     This function takes a binary tuple and returns its integer representation.
     :param binary_tuple:
@@ -89,50 +80,176 @@ def convert_binary_string_to_tuple(binary_string: str) -> Tuple[int, ...]:
     """
     return tuple(map(int, binary_string))
 
+from quapopt import AVAILABLE_SIMULATORS
+if 'cupy' in AVAILABLE_SIMULATORS:
+    import cupy as cp
+else:
+    import numpy as cp
+
+_MAP_STR_TYPE = {'int': int,
+                 'float': float,
+                 'str': str,
+                 'list': list,
+                 'tuple': tuple,
+                 'ndarray':np.ndarray,
+                 'np.ndarray': np.ndarray,
+                 'cp.ndarray': cp.ndarray, }
+
+
+def get_eval_string_listlike_function(
+                         output_container_type: type | str=list,
+                         input_numbers_type: type | str=int,
+                         output_numbers_type: type | str=int,
+                         )->Callable[[str],Union[list,tuple,np.ndarray, cp.ndarray,str]]:
+
+
+    if isinstance(output_container_type, str):
+        output_container_type = _MAP_STR_TYPE[output_container_type]
+    if isinstance(input_numbers_type, str):
+        input_numbers_type = _MAP_STR_TYPE[input_numbers_type]
+    if isinstance(output_numbers_type, str):
+        output_numbers_type = _MAP_STR_TYPE[output_numbers_type]
+
+
+    if output_container_type == str:
+        return lambda x: x
+
+    assert output_container_type in [list, tuple, np.ndarray, cp.ndarray],\
+        f"Output type {output_container_type} not supported. Should be one of: [list,tuple,np.ndarray]"
+    assert output_numbers_type in [int, float], f"Output format should be int or float, not {output_numbers_type}"
+    assert input_numbers_type in [int, float, np.ndarray, cp.ndarray],\
+        f"Input format should be int, float, np.ndarray or cp.ndarray, not {input_numbers_type}"
+
+    if output_container_type == np.ndarray or input_numbers_type == np.ndarray:
+        _bck = np
+    elif output_container_type == cp.ndarray or input_numbers_type == cp.ndarray:
+        _bck = cp
+
+
+    if input_numbers_type in [int, float]:
+        def _function(input_string):
+            if isinstance(input_string, (float, int)):
+                if np.isnan(input_string):
+                    _map_format = map(output_numbers_type, [])
+                else:
+                    _map_format = map(output_numbers_type, [input_string])
+            elif input_numbers_type in [float] and output_numbers_type in [int]:
+                _map_format = map(lambda x:int(float(x)), input_string[1:-1].split(','))
+            else:
+                _map_format = map(output_numbers_type, input_string[1:-1].split(','))
+
+            if output_container_type in [np.ndarray, cp.ndarray]:
+                return _bck.array(list(_map_format))
+            else:
+                return output_container_type(list(_map_format))
+
+    elif input_numbers_type in [np.ndarray, cp.ndarray]:
+        def _function(input_string):
+            arr = _bck.fromstring(input_string[1:-1], dtype=output_numbers_type, sep=' ')
+            if output_container_type == list:
+                arr = arr.tolist()
+            elif output_container_type == tuple:
+                arr = tuple(arr.tolist())
+            return arr
+    else:
+        raise ValueError(f"Input format {input_numbers_type} not supported")
+
+    return _function
+
+
+
+
+def eval_string_listlike(input_string: str,
+                         output_type: type | str = list,
+                         input_format: type | str = int,
+                         output_format: type | str = int,
+                         ) -> Union[list, tuple, np.ndarray, cp.ndarray, str]:
+    _function = get_eval_string_listlike_function(output_container_type=output_type,
+                                                  input_numbers_type=input_format,
+                                                  output_numbers_type=output_format)
+    return _function(input_string)
+
 
 # By far this is the fastest method to do that
-def eval_string_tuple_to_tuple(s: str) -> Tuple[int, ...]:
-    return tuple(map(int, s[1:-1].split(",")))
-
+def eval_string_tuple_to_tuple_int(s: str) -> Tuple[int, ...]:
+    return tuple(map(int, s[1:-1].split(',')))
+# By far this is the fastest method to do that
+def eval_string_list_to_list_int(s: str) -> List[int]:
+    return list(map(int, s[1:-1].split(',')))
+def eval_string_float_list_to_int_list(s:str)->List[int]:
+    return list(map(lambda x: int(float(x)), s[1:-1].split(',')))
 
 def eval_string_tuple_to_tuple_float(s: str) -> Tuple[float, ...]:
-    return tuple(map(float, s[1:-1].split(",")))
+    return tuple(map(float, s[1:-1].split(',')))
 
+def eval_string_list_to_list_float(s: str) -> List[float]:
+    return list(map(float, s[1:-1].split(',')))
 
 def eval_string_float_tuple_to_int_tuple(s: str) -> Tuple[int, ...]:
-    return tuple(map(lambda x: int(float(x)), s[1:-1].split(",")))
+    return tuple(map(lambda x: int(float(x)), s[1:-1].split(',')))
 
 
-def concatenate_permutations(
-    permutations: List[Tuple[int, ...]],
-):
+def concatenate_permutations(permutations: List[Tuple[int, ...]],
+                             number_of_qubits:int):
     """
     This function takes a list of permutations and concatenates them.
+    Note: this assumes that the permutations are passed in CHRONOLOGICAL order.
+    So, the first permutation in the list is the FIRST permutation applied to the system.
+
     :param permutations:
     :return:
     """
 
-    combined = list(range(np.max(permutations[0]) + 1))
+    combined = list(range(number_of_qubits))
     for perm in permutations:
         if len(list(set(perm))) != len(perm):
             raise ValueError(f"Permutation is invalid: {perm}")
         if set(combined) != set(perm):
             raise ValueError(f"Permutation is invalid: {perm}")
-        combined = [perm[pi] for pi in combined]
+        # combined = [perm[pi] for pi in combined]
+        combined = [combined[perm[i]] for i in range(number_of_qubits)]
+
     return tuple(combined)
+
+def concatenate_bitflips(bitstrings_array:np.ndarray|List[Tuple[int,...]]):
+
+
+    if isinstance(bitstrings_array,list):
+        if isinstance(bitstrings_array[0],np.ndarray):
+            bitstrings_array = np.array(bitstrings_array)
+        elif isinstance(bitstrings_array[0],cp.ndarray):
+            bitstrings_array = cp.array(bitstrings_array)
+        else:
+            bitstrings_array = np.array(bitstrings_array,dtype=np.int32)
+
+    # bitstrings_array = np.array(bitstrings_array)
+
+
+
+    return tuple(bitstrings_array.sum(axis=0) % 2)
+
+
+
 
 
 def reverse_permutation(permutation: Tuple[int, ...]) -> Tuple[int, ...]:
     """
     This function takes a permutation and returns its reverse.
-
+    This means a new permutation which concatenated with the original one gives the identity permutation.
     :param permutation:
     :return:
     """
+
     return tuple(permutation.index(i) for i in range(len(permutation)))
 
 
-def apply_permutation_to_array(array: np.ndarray, permutation: Tuple[int, ...]):
+
+def apply_permutation_to_array(array: np.ndarray,
+                              permutation: Tuple[int, ...]):
+    """Column permutation[j] of the result is column j of the input (array[:, p^-1]).
+
+    This is the INVERSE of what apply_permutation_to_list does.
+    """
     if permutation is None:
         return array
     # WARGNING: If we use the same convention as in rest of the repo, we should first REVERSE the permutation.
@@ -141,16 +258,16 @@ def apply_permutation_to_array(array: np.ndarray, permutation: Tuple[int, ...]):
     return array[:, permutation_rev]
 
 
+
 try:
     # Colorama for colorful printing -- that's luxiourious
     from colorama import Fore, Style
 
-    def cool_print(
-        colored_string: str,
-        stuff_to_print_without_color: Optional[Any] = None,
-        color_name: Optional[str] = "cyan",
-        print_floors=False,
-    ) -> None:
+
+    def cool_print(colored_string: str,
+                   stuff_to_print_without_color: Optional[Any] = None,
+                   color_name: Optional[str] = 'cyan',
+                   print_floors=False) -> None:
         """
 
         :param colored_string:  is printed with color
@@ -170,21 +287,15 @@ try:
         if stuff_to_print_without_color is None:
             print(color + str(colored_string) + Style.RESET_ALL)
         else:
-            print(
-                color + str(colored_string),
-                Style.RESET_ALL + stuff_to_really_print_without_color,
-            )
+            print(color + str(colored_string), Style.RESET_ALL + stuff_to_really_print_without_color)
         if print_floors:
             print("_________________________")
 
-except ImportError:
-
-    def cool_print(
-        colored_string: str,
-        stuff_to_print_without_color: Optional[Any] = None,
-        color_name: Optional[str] = "cyan",
-        print_floors=False,
-    ) -> None:
+except(ImportError):
+    def cool_print(colored_string: str,
+                   stuff_to_print_without_color: Optional[Any] = None,
+                   color_name: Optional[str] = 'cyan',
+                   print_floors=False) -> None:
         """
 
         :param colored_string:  is printed with color
@@ -209,60 +320,61 @@ except ImportError:
             print("_________________________")
 
 
-def _embed_1q_operator(
-    number_of_qubits: int, local_operator: np.ndarray, global_qubit_index: int
-):
+
+
+
+
+
+
+
+def _embed_1q_operator(number_of_qubits: int,
+                       local_operator: np.ndarray,
+                       global_qubit_index: int):
     if global_qubit_index == 0:
-        embed_operator = np.kron(
-            local_operator, np.eye(int(2 ** (number_of_qubits - 1)))
-        )
+        embed_operator = np.kron(local_operator,
+                                 np.eye(int(2 ** (number_of_qubits - 1))))
         return embed_operator
     else:
         first_eye = np.eye(2 ** (global_qubit_index))
         second_eye = np.eye(2 ** (number_of_qubits - global_qubit_index - 1))
 
-        embeded_operator = np.kron(np.kron(first_eye, local_operator), second_eye)
+        embeded_operator = np.kron(np.kron(first_eye,
+                                           local_operator),
+                                   second_eye)
 
         return embeded_operator
 
 
-def embed_operator_in_bigger_hilbert_space(
-    number_of_qubits: int,
-    local_operator: np.ndarray,
-    global_indices: Optional[Union[List[int], Tuple[int]]] = [0, 1],
-    vector=False,
-):
+def embed_operator_in_bigger_hilbert_space(number_of_qubits: int,
+                                           local_operator: np.ndarray,
+                                           global_indices: Optional[Union[List[int], Tuple[int]]] = [0, 1],
+                                           vector = False):
     import qutip
-
     N_small = int(np.log2(local_operator.shape[0]))
 
+    # print
     if N_small == 1:
         return _embed_1q_operator(number_of_qubits, local_operator, global_indices[0])
     if vector:
-        raise NotImplementedError("Vector not implemented yet")
-        qutip_object = qutip.Qobj(
-            local_operator,
-            dims=[[2 for _ in range(N_small)], [1 for _ in range(N_small)]],
-        )
+        raise NotImplementedError('Vector not implemented yet')
+        qutip_object = qutip.Qobj(local_operator,
+                                  dims=[[2 for _ in range(N_small)],
+                                        [1 for _ in range(N_small)]])
     else:
-        qutip_object = qutip.Qobj(
-            local_operator,
-            dims=[[2 for _ in range(N_small)], [2 for _ in range(N_small)]],
-        )
+        qutip_object = qutip.Qobj(local_operator,
+                                  dims=[[2 for _ in range(N_small)],
+                                        [2 for _ in range(N_small)]])
 
-    return qutip.core.expand_operator(
-        oper=qutip_object,
-        dims=[2 for _ in range(number_of_qubits)],
-        targets=global_indices,
-    ).full()
+    return qutip.core.expand_operator(oper=qutip_object,
+                                      dims=[2 for _ in range(number_of_qubits)],
+                                      targets=global_indices).full()
 
 
-def get_permutation_operator(
-    permutation: Union[Tuple[int, ...], List[int]], dtype=np.float32
-):
+def get_permutation_operator(permutation: Union[Tuple[int, ...], List[int]],
+                             dtype=np.float32):
 
-    import qutip
     from sympy.combinatorics.permutations import Permutation
+    import qutip
 
     perm_rev = Permutation(permutation)
     perm_rev_transpositions = perm_rev.transpositions()
@@ -272,19 +384,66 @@ def get_permutation_operator(
 
     full_permutation = np.eye(2**number_of_qubits, dtype=dtype)
     for transposition in perm_rev_transpositions:
-        swap_ij = embed_operator_in_bigger_hilbert_space(
-            number_of_qubits=number_of_qubits,
-            local_operator=swap_01.full(),
-            global_indices=transposition,
-        )
+        swap_ij = embed_operator_in_bigger_hilbert_space(number_of_qubits=number_of_qubits,
+                                                         local_operator=swap_01.full(),
+                                                         global_indices=transposition)
 
         full_permutation = swap_ij @ full_permutation
     return full_permutation
 
 
-def transform_histogram_to_bitstrings_array(
-    bitstrings_array_histogram: List[Tuple[np.ndarray, np.ndarray]],
-) -> np.ndarray:
+def apply_permutation_operator_to_statevector(statevector: np.ndarray,
+                                              permutation: Tuple[int, ...]|List[int]|Tuple[Tuple[int,int]]|List[Tuple[int,int]]):
+    """
+    Apply a qubit permutation to a statevector without materializing the full permutation matrix.
+
+    This function efficiently permutes qubits in a statevector by directly manipulating indices
+    rather than constructing and applying a full permutation matrix, which is memory-efficient
+    for large systems.
+
+    :param statevector: The input statevector as a 1D numpy array of shape (2**n_qubits,)
+    :param permutation: Tuple or list specifying the qubit permutation.
+                       permutation[i] = j means qubit i goes to position j.
+                       OR
+                       list/tuple of equivalent transpositions, e.g. [(0, 1), (2, 3)]
+
+    :return: Permuted statevector as a numpy array
+
+    Example:
+        # 3-qubit system with permutation (2, 1, 0) - reverses qubit order
+        statevector = np.array([1, 0, 0, 0, 0, 0, 0, 0])  # |000> state
+        permuted = apply_permutation_operator_to_statevector(statevector, (2, 1, 0))
+    """
+    from sympy.combinatorics.permutations import Permutation
+
+    # Determine number of qubits from statevector size
+    number_of_qubits = int(np.log2(len(statevector)))
+
+    if isinstance(permutation[0],(tuple,list)):
+        assert len(permutation[0]) == 2, "If permutation is a list of tuples, it should contain exactly two elements."
+        transpositions = permutation
+    else:
+        permutation = list(permutation)
+        # Get transpositions that implement this permutation
+        perm_obj = Permutation(permutation)
+        transpositions = perm_obj.transpositions()
+
+    # Reshape statevector to n-qubit tensor
+    state_tensor = statevector.reshape([2] * number_of_qubits)
+
+    # Apply each transposition by swapping tensor axes
+    for i, j in transpositions:
+        state_tensor = np.swapaxes(state_tensor, i, j)
+
+    # Flatten back to statevector
+    return state_tensor.reshape(-1)
+
+
+
+
+
+
+def transform_histogram_to_bitstrings_array(bitstrings_array_histogram: List[Tuple[np.ndarray,np.ndarray]]) -> np.ndarray:
     """
     This function transforms the histogram of bitstrings to an array of bitstrings.
     :param bitstrings_array_histogram:
@@ -294,16 +453,76 @@ def transform_histogram_to_bitstrings_array(
     all_arrays = []
 
     for bitstrings_array, counts_array in bitstrings_array_histogram:
-        all_arrays.append(
-            np.repeat(
-                bitstrings_array.astype(np.int32), counts_array.astype(int), axis=0
-            )
-        )
+        all_arrays.append(np.repeat(bitstrings_array.astype(np.int32), counts_array.astype(int), axis=0))
+
 
     return np.array(all_arrays, dtype=np.int32)
 
 
-def query_yes_no(question: str) -> bool:
+def expand_histogram_dataframe(df_histogram:pd.DataFrame,
+                               count_column:Optional[str]=None):
+
+    if count_column is None:
+        count_column = 'Count'
+
+    df_expanded = df_histogram.copy()
+    df_expanded = df_expanded.loc[df_expanded.index.repeat(df_expanded[count_column])]
+    df_expanded = df_expanded.reset_index(drop=True)
+
+    df_expanded.drop(columns=[count_column], inplace=True)
+
+    return df_expanded
+
+
+def transform_to_histogram_dataframe(df_flat:pd.DataFrame,
+                                     value_column:str,
+                                     )->pd.DataFrame:
+
+    columns_present = df_flat.columns.tolist()
+
+
+
+    assert value_column in columns_present, f"The value column ('{value_column}') must be present in the dataframe."
+
+    grouping_columns = list(set(columns_present).difference({value_column}))
+    count_column_name = 'Count'
+    #now we aggregate and perform histogram counting.
+
+    if len(grouping_columns)==0:
+        df_grouped = [(None,df_flat)]
+    else:
+        df_grouped = df_flat.groupby(grouping_columns)
+
+
+
+    all_dfs = []
+    for _, group in df_grouped:
+        group: pd.DataFrame = group.copy()
+        values_group = group[value_column].to_numpy()
+        unique_values, counts = np.unique(values_group,
+                                          #axis=0,
+                                          return_counts=True)
+
+
+        group_header = group.head(1)
+        df_histogram_group = pd.DataFrame({count_column_name:counts.tolist(),
+                                           value_column:unique_values.tolist()} )
+
+        for column_name in group_header.columns:
+            if column_name not in df_histogram_group.columns:
+                value = group_header[column_name].values[0]
+                df_histogram_group[column_name] = [value] * len(df_histogram_group)
+
+
+        all_dfs.append(df_histogram_group)
+
+    df_histogram = pd.concat(all_dfs, axis=0, ignore_index=True)
+    return df_histogram
+
+
+
+
+def query_yes_no(question:str)->bool:
     """Ask a yes/no question via raw_input() and return their answer.
 
     "question" is a string that is presented to the user.
@@ -311,41 +530,53 @@ def query_yes_no(question: str) -> bool:
 
     The function will continue to ask until a valid answer is given.
     """
-    _yes_answers = {"yes", "y", "ye", "tak", "sure", "of course", "Yes", "yeah"}
-    _no_answers = {"no", "n", "nope", "nah", "nie", "noo", "nooo", "noooo", "No"}
+    _yes_answers = {'yes',
+                    'y',
+                    'ye',
+                    'tak',
+                    'sure',
+                    'of course',
+                    'Yes',
+                    'yeah'}
+    _no_answers = {'no',
+                   'n',
+                   'nope',
+                   'nah',
+                   'nie',
+                   'noo',
+                   'nooo',
+                   'noooo',
+                   'No'}
 
-    _existential_answers = {
-        "I am never sure about anything",
-        "What is certain in this world?",
-    }
+    _existential_answers = {'I am never sure about anything', 'What is certain in this world?'}
 
-    cool_print(question, "[y/n]", "red")
+    cool_print(question, '[y/n]', 'red')
     prompt = f"{question}; [y/n]"
 
     choice = input(prompt).lower()
     if choice in _yes_answers:
-        cool_print("ANSWER:", choice, "green")
+        cool_print('ANSWER:', choice, 'green')
         return True
     elif choice in _no_answers:
-        cool_print("ANSWER:", choice, "red")
+        cool_print('ANSWER:', choice, 'red')
         return False
     else:
-        cool_print("ANSWER:", choice, "blue")
+        cool_print('ANSWER:', choice, 'blue')
         if choice in _existential_answers:
-            cool_print("I feel you. However:", "")
-        cool_print("Please:", "respond with 'yes' or 'no'")
+            cool_print('I feel you. However:', '')
+        cool_print('Please:', "respond with 'yes' or 'no'")
         return query_yes_no(question)
 
-
-def wait_unless_interrupted(wait_time: float, progress_bar_in_notebook: bool = True):
+def wait_unless_interrupted(wait_time: float,
+                            progress_bar_in_notebook:bool=True):
     if progress_bar_in_notebook:
         _tqdm = tqdm_notebook
     else:
         _tqdm = tqdm
-    for sleepy in _tqdm(range(wait_time), position=0, colour="green"):
+    for sleepy in _tqdm(range(wait_time), position=0, colour='green'):
         try:
             time.sleep(1)
-        except KeyboardInterrupt:
+        except(KeyboardInterrupt):
             if query_yes_no("\nBreak the loop and run?"):
                 break
             else:
@@ -355,15 +586,13 @@ def wait_unless_interrupted(wait_time: float, progress_bar_in_notebook: bool = T
                     cool_print("OK, waiting...")
                     wait_unless_interrupted(wait_time=wait_time - sleepy)
 
-
-def contract_dataframe_with_minmax_values(
-    df: pd.DataFrame,
-    variable_name: str,
-    find_maximal_value: bool,
-    columns_to_skip: Optional[List[str]] = None,
-    grouping_columns: Optional[List[str]] = None,
-    allow_degeneracy: bool = False,
-) -> pd.DataFrame:
+def contract_dataframe_with_minmax_values(df:pd.DataFrame,
+                                          variable_name:str,
+                                          find_maximal_value:bool,
+                                          columns_to_skip:Optional[List[str]]=None,
+                                          grouping_columns:Optional[List[str]]=None,
+                                          allow_degeneracy:bool=False
+                                          ) -> pd.DataFrame:
     """
     Contract a DataFrame to only include rows with the minimum or maximum value of a specified variable.
     :param df:
@@ -382,37 +611,35 @@ def contract_dataframe_with_minmax_values(
     :return:
     """
 
-    if isinstance(variable_name, list):
-        assert (
-            len(variable_name) == 1
-        ), "If variable_name is a list, it should contain exactly one element."
+    if isinstance(variable_name,list):
+        assert len(variable_name) == 1, "If variable_name is a list, it should contain exactly one element."
         variable_name = variable_name[0]
 
-    if isinstance(grouping_columns, str):
+    if isinstance(grouping_columns,str):
         grouping_columns = [grouping_columns]
 
     if columns_to_skip is None:
         columns_to_skip = []
 
-    # To avoid errors
-    df = df.copy().drop(columns=columns_to_skip)
+    # Reset index to ensure unique indices (important when df comes from pd.concat with duplicate indices)
+    df = df.copy().reset_index(drop=True).drop(columns=columns_to_skip)
+
+    if isinstance(grouping_columns,(list,)):
+        if len(grouping_columns)==0:
+            grouping_columns = None
+
     if grouping_columns is not None:
         df_grouped = df.groupby(grouping_columns)
 
         if allow_degeneracy:
-            df_minmax = df_grouped[variable_name].transform(
-                "max" if find_maximal_value else "min"
-            )
+            df_minmax = df_grouped[variable_name].transform('max' if find_maximal_value else 'min')
             return df[df[variable_name] == df_minmax].reset_index(drop=True)
 
     else:
         if allow_degeneracy:
-            minmax_val = (
-                df[variable_name].max()
-                if find_maximal_value
-                else df[variable_name].min()
-            )
+            minmax_val = df[variable_name].max() if find_maximal_value else df[variable_name].min()
             return df[df[variable_name] == minmax_val].reset_index(drop=True)
+
 
         df_grouped = df
 
@@ -424,17 +651,18 @@ def contract_dataframe_with_minmax_values(
     if grouping_columns is None:
         idx = [idx]
 
+   # print(idx)
+    if hasattr(idx, 'values'):
+        idx = idx.values  # Extract raw index values from Series (avoids MultiIndex alignment issues)
     return df.loc[idx].reset_index(drop=True)
 
 
-def contract_dataframe_with_aggregating_functions(
-    df: pd.DataFrame,
-    functions_to_apply: Union[List[str], Dict[str, str]],
-    columns_to_skip: Optional[Union[str, List[str]]] = None,
-    grouping_columns: Optional[List[str]] = None,
-    record_min_max_index_for_variables: Optional[str] = None,
-    flatten_column_names=True,
-) -> pd.DataFrame:
+def contract_dataframe_with_aggregating_functions(df:pd.DataFrame,
+                                                  functions_to_apply:Union[List[str], Dict[str,str]],
+                                                  columns_to_skip:Optional[Union[str, List[str]]]=None,
+                                                  grouping_columns:Optional[List[str]]=None,
+                                                  record_min_max_index_for_variables:Optional[str]=None,
+                                                  flatten_column_names=True)-> pd.DataFrame:
     """
     Contract a DataFrame by applying specified aggregation functions to its columns,
     optionally grouping by specified columns.
@@ -462,50 +690,42 @@ def contract_dataframe_with_aggregating_functions(
 
     df = df.copy().drop(columns=columns_to_skip)
 
-    if isinstance(grouping_columns, str):
+    if isinstance(grouping_columns,str):
         grouping_columns = [grouping_columns]
 
     columns_to_apply_to = list(set(df.columns))
     if grouping_columns is not None:
         if columns_to_skip is not None:
-            grouping_columns = list(
-                set(grouping_columns).difference(set(columns_to_skip))
-            )
+            grouping_columns = list(set(grouping_columns).difference(set(columns_to_skip)))
 
         df_grouped = df.groupby(grouping_columns)
-        columns_to_apply_to = list(
-            set(columns_to_apply_to).difference(set(grouping_columns))
-        )
+        columns_to_apply_to = list(set(columns_to_apply_to).difference(set(grouping_columns)))
 
     else:
         df_grouped = df
 
     if columns_to_skip is not None:
-        columns_to_apply_to = list(
-            set(columns_to_apply_to).difference(set(columns_to_skip))
-        )
+        columns_to_apply_to = list(set(columns_to_apply_to).difference(set(columns_to_skip)))
 
-    if isinstance(columns_to_apply_to, str):
+    if isinstance(columns_to_apply_to,str):
         columns_to_apply_to = [columns_to_apply_to]
 
-    if isinstance(functions_to_apply, str):
+    if isinstance(functions_to_apply,str):
         functions_to_apply = [functions_to_apply]
 
-    if isinstance(functions_to_apply, list):
-        functions_to_apply = {
-            col_name: functions_to_apply.copy() for col_name in columns_to_apply_to
-        }
+    if isinstance(functions_to_apply,list):
+        functions_to_apply = {col_name: functions_to_apply.copy() for col_name in columns_to_apply_to}
 
     if record_min_max_index_for_variables is not None:
-        if isinstance(record_min_max_index_for_variables, str):
+        if isinstance(record_min_max_index_for_variables,str):
             record_min_max_index_for_variables = [record_min_max_index_for_variables]
 
         for col_name in record_min_max_index_for_variables:
             if col_name in columns_to_apply_to:
-                if "max" in functions_to_apply[col_name]:
-                    functions_to_apply[col_name].append("idxmax")
-                if "min" in functions_to_apply[col_name]:
-                    functions_to_apply[col_name].append("idxmin")
+                if 'max' in functions_to_apply[col_name]:
+                    functions_to_apply[col_name].append('idxmax')
+                if 'min' in functions_to_apply[col_name]:
+                    functions_to_apply[col_name].append('idxmin')
 
     contracted_dataframe = df_grouped.agg(functions_to_apply)
 
@@ -513,22 +733,20 @@ def contract_dataframe_with_aggregating_functions(
         contracted_dataframe = contracted_dataframe.unstack().to_frame().T
 
     if flatten_column_names:
-        contracted_dataframe.columns = [
-            "_".join(col).rstrip("_") for col in contracted_dataframe.columns
-        ]
-
-    return contracted_dataframe.reset_index(drop=grouping_columns is None)
+        contracted_dataframe.columns = ['_'.join(col).rstrip('_') for col in contracted_dataframe.columns]
 
 
-def contract_dataframe_with_functions(
-    df: pd.DataFrame,
-    unique_variables_columns_names: List[str],
-    functions_to_apply: Union[str, List[str]],
-    contraction_column: Optional[Union[str, List[str]]] = None,
-    record_min_max_for: Optional[str] = None,
-):
+    return contracted_dataframe.reset_index(drop = grouping_columns is None)
 
-    # TODO(FBM): depreciated, please use "contract_dataframe_with_aggregating_functions" instead
+
+def contract_dataframe_with_functions(df: pd.DataFrame,
+                                      unique_variables_columns_names: List[str],
+                                      functions_to_apply: Union[str, List[str]],
+                                      contraction_column: Optional[Union[str,List[str]]]=None,
+                                      record_min_max_for: Optional[str] = None
+                                      ):
+
+    #TODO(FBM): depreciated, please use "contract_dataframe_with_aggregating_functions" instead
     """
 
     The function will take dataframe "df" and perform contraction along "contraction_column" by applying functions
@@ -566,11 +784,9 @@ def contract_dataframe_with_functions(
     :param record_min_max_for:
     :return:
     """
-
-    print("THIS function is depreciated, please use 'contract_dataframe_with_aggregating_functions' instead")
     if contraction_column is None:
         contraction_column = [""]
-    if isinstance(contraction_column, str):
+    if isinstance(contraction_column,str):
         contraction_column = [contraction_column]
     if isinstance(unique_variables_columns_names, str):
         unique_variables_columns_names = [unique_variables_columns_names]
@@ -578,29 +794,21 @@ def contract_dataframe_with_functions(
         functions_to_apply = [functions_to_apply]
 
     if contraction_column in unique_variables_columns_names:
-        unique_variables_columns_names = list(
-            set(unique_variables_columns_names).difference(set(contraction_column))
-        )
+        unique_variables_columns_names = list(set(unique_variables_columns_names).difference(set(contraction_column)))
 
-    variables_names = list(
-        set(df.columns).difference(
-            set(unique_variables_columns_names + contraction_column)
-        )
-    )
+    variables_names = list(set(df.columns).difference(set(unique_variables_columns_names + contraction_column)))
 
-    df = df.fillna("None", inplace=False).copy()
-    functions_dictionary = {
-        key: copy.deepcopy(functions_to_apply) for key in variables_names
-    }
+    df = df.fillna('None',inplace=False).copy()
+    functions_dictionary = {key: copy.deepcopy(functions_to_apply) for key in variables_names}
     if record_min_max_for is not None:
         if not isinstance(record_min_max_for, list):
             record_min_max_for = [record_min_max_for]
 
         for rmmf in record_min_max_for:
-            if "max" in functions_to_apply:
-                functions_dictionary[rmmf].insert(0, "idxmax")
-            if "min" in functions_to_apply:
-                functions_dictionary[rmmf].insert(0, "idxmin")
+            if 'max' in functions_to_apply:
+                functions_dictionary[rmmf].insert(0, 'idxmax')
+            if 'min' in functions_to_apply:
+                functions_dictionary[rmmf].insert(0, 'idxmin')
 
     if len(unique_variables_columns_names) == 0:
         grouped_initial = df
@@ -610,14 +818,13 @@ def contract_dataframe_with_functions(
         grouped_initial = df.groupby(unique_variables_columns_names)
 
     contracted_dataframe = grouped_initial.agg(functions_dictionary).reset_index()
-    contracted_dataframe.columns = [
-        "_".join(col).rstrip("_") for col in contracted_dataframe.columns
-    ]
+    # print(contracted_dataframe)
+    contracted_dataframe.columns = ['_'.join(col).rstrip('_') for col in contracted_dataframe.columns]
     df_con = contracted_dataframe
 
     if record_min_max_for is not None:
         for rmmf in record_min_max_for:
-            for minmax in ["min", "max"]:
+            for minmax in ['min', 'max']:
                 if minmax in functions_to_apply:
                     # TODO FBM: make sure degeneracy does not break this (comment: I think it shouldn't, it will just choose
                     #           the first occurance of min/max value)
@@ -625,9 +832,8 @@ def contract_dataframe_with_functions(
 
                     for c_c in contraction_column:
                         try:
-                            df_con[f"{contraction_column}_{rmmf}_{minmax}"] = df[
-                                f"{contraction_column}"
-                            ][minmax_indices].values
+                            df_con[f"{contraction_column}_{rmmf}_{minmax}"] = df[f"{contraction_column}"][
+                                minmax_indices].values
                         except Exception as e:
                             print(df_con)
                             print("Error!", e)
@@ -638,7 +844,13 @@ def contract_dataframe_with_functions(
 
                     df_con.drop(columns=[f"{rmmf}_idx{minmax}"], inplace=True)
 
+        # minmax_indices = df_con[f"{record_min_max_for}_idx__special_min"].values
+        # df_con[f"{contraction_column}___special_min"] = df[f"{contraction_column}"][minmax_indices].values
+
+    # df_con.reset_index(inplace=True)
     return df_con
+
+
 
 
 def _apply_func_to_series(data, func):
@@ -646,9 +858,9 @@ def _apply_func_to_series(data, func):
     return data
 
 
-def df_column_apply_function_parallelized(
-    series: pd.Series, function_to_apply: Callable, number_of_threads=1
-):
+def df_column_apply_function_parallelized(series: pd.Series,
+                                          function_to_apply: Callable,
+                                          number_of_threads=1):
     """
     Apply some function to pandas series in a parallelized way.
     :param series:
@@ -660,64 +872,53 @@ def df_column_apply_function_parallelized(
         return series.apply(function_to_apply)
     else:
         pool = Pool(number_of_threads)
-        series_split = np.array_split(series, number_of_threads)
-        results = pool.starmap(
-            _apply_func_to_series, [(data, function_to_apply) for data in series_split]
-        )
+        series_split = np.array_split(series,
+                                      number_of_threads)
+        results = pool.starmap(_apply_func_to_series,
+                               [(data, function_to_apply) for data in series_split])
         series = pd.concat(results)
         pool.close()
         pool.join()
         return series
 
 
-def apply_permutation_operator_to_statevector(
-    statevector: np.ndarray,
-    permutation: (
-        Tuple[int, ...] | List[int] | Tuple[Tuple[int, int]] | List[Tuple[int, int]]
-    ),
-):
-    """
-    Apply a qubit permutation to a statevector without materializing the full permutation matrix.
 
-    This function efficiently permutes qubits in a statevector by directly manipulating indices
-    rather than constructing and applying a full permutation matrix, which is memory-efficient
-    for large systems.
 
-    :param statevector: The input statevector as a 1D numpy array of shape (2**n_qubits,)
-    :param permutation: Tuple or list specifying the qubit permutation.
-                       permutation[i] = j means qubit i goes to position j.
-                       OR
-                       list/tuple of equivalent transpositions, e.g. [(0, 1), (2, 3)]
+def mirror_folder_path_in_root_output_folder(main_folder_name='notebooks'):
+    import quapopt
+    repo_root = Path(quapopt.__file__).resolve().parent.parent
 
-    :return: Permuted statevector as a numpy array
+    path = Path.cwd()
+    _right_path = Path(f'{main_folder_name}/')
+    start_adding = False
+    for parent in path.parents[::-1]:
+        if start_adding:
+            _right_path = _right_path / parent.name
+        if parent.name == main_folder_name:
+            start_adding = True
 
-    Example:
-        # 3-qubit system with permutation (2, 1, 0) - reverses qubit order
-        statevector = np.array([1, 0, 0, 0, 0, 0, 0, 0])  # |000> state
-        permuted = apply_permutation_operator_to_statevector(statevector, (2, 1, 0))
-    """
-    from sympy.combinatorics.permutations import Permutation
+    middle_path = Path('output/plots/')
 
-    # Determine number of qubits from statevector size
-    number_of_qubits = int(np.log2(len(statevector)))
+    output_folder = repo_root / middle_path / _right_path
+    output_folder = output_folder.absolute()
+    os.makedirs(output_folder, exist_ok=True)
+    return output_folder
 
-    if isinstance(permutation[0], (tuple, list)):
-        assert (
-            len(permutation[0]) == 2
-        ), "If permutation is a list of tuples, it should contain exactly two elements."
-        transpositions = permutation
+def get_pauli_matrix(i:int|str):
+
+    if i in [0, '0', 'I', 'i']:
+        return np.eye(2,dtype=complex)
+    elif i in [1, '1', 'X', 'x']:
+        return np.array([[0,1],
+                                [1,0]],dtype=complex)
+    elif i in [2, '2', 'Y', 'y']:
+        return np.array([[0,-1j],
+                                [1j,0]],dtype=complex)
+    elif i in [3, '3', 'Z', 'z']:
+        return np.array([[1,0],
+                                [0,-1]],dtype=complex)
     else:
-        permutation = list(permutation)
-        # Get transpositions that implement this permutation
-        perm_obj = Permutation(permutation)
-        transpositions = perm_obj.transpositions()
+        raise ValueError(f"Invalid Pauli matrix index {i}")
 
-    # Reshape statevector to n-qubit tensor
-    state_tensor = statevector.reshape([2] * number_of_qubits)
 
-    # Apply each transposition by swapping tensor axes
-    for i, j in transpositions:
-        state_tensor = np.swapaxes(state_tensor, i, j)
 
-    # Flatten back to statevector
-    return state_tensor.reshape(-1)

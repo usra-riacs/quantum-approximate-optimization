@@ -1,12 +1,10 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
 import numpy as np
-
-cimport cython
 cimport numpy as np
-from libc.math cimport cos, sin
+cimport cython
+from libc.math cimport sin, cos
 
 ctypedef fused floating:
     np.float32_t

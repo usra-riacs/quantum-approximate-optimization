@@ -1,19 +1,12 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-
-from itertools import combinations
-from typing import Optional
+from quapopt.hamiltonians.generators.RandomClassicalHamiltonianGeneratorBase import RandomClassicalHamiltonianGeneratorBase
+from quapopt.data_analysis.data_handling import (CoefficientsDistributionSpecifier,
+                                                 HamiltonianClassSpecifierLABS)
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
 
 import numpy as np
-from tqdm.notebook import tqdm
-
-from quapopt.data_analysis.data_handling import HamiltonianClassSpecifierLABS
-from quapopt.hamiltonians.generators.RandomClassicalHamiltonianGeneratorBase import (
-    RandomClassicalHamiltonianGeneratorBase,
-)
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
-    ClassicalHamiltonian,
-)
+from typing import Optional
 
 _NORMALIZATION_LABS = 2
 
@@ -93,6 +86,11 @@ _KNOWN_OPTIMAL_ENERGIES_LABS = {
 }
 
 
+
+
+
+
+
 class LABSHamiltonianGenerator(RandomClassicalHamiltonianGeneratorBase):
     def __init__(self):
         """
@@ -102,131 +100,108 @@ class LABSHamiltonianGenerator(RandomClassicalHamiltonianGeneratorBase):
         hamiltonian_class_specifier = HamiltonianClassSpecifierLABS()
         super().__init__(hamiltonian_class_specifier=hamiltonian_class_specifier)
 
-    def generate_instance(
-        self,
-        number_of_qubits: int,
-        read_from_drive_if_present=True,
-        default_backend: Optional[str] = None,
-        print_progress_bar: bool = False,
-        seed: Optional[int] = 0,
-    ) -> ClassicalHamiltonian:
+
+
+
+
+
+    def generate_instance(self,
+                          number_of_qubits:int,
+                          read_from_drive_if_present=True,
+                          default_backend:Optional[str]=None,
+                          print_progress_bar:bool=False,
+                          seed: Optional[int] = 0,
+                          ) -> ClassicalHamiltonian:
         """
 
         :param number_of_qubits:
         :param read_from_drive_if_present:
         :param default_backend:
-        :param print_progress_bar:
+        :param print_progress_bar: unused; the build takes well under a second
         :param seed:
         THIS IS IGNORED -- LABS is deterministic Hamiltonian. Argument for compatiblity of all other generators.
         :return:
         """
+        assert seed == 0, "LABS is deterministic, so seed is ignored, use seed=0 please."
 
         hamiltonian_class_specifier = self._hamiltonian_class_specifier
-        hamiltonian_instance_specifier = (
-            hamiltonian_class_specifier.instance_specifier_constructor(
-                NumberOfQubits=number_of_qubits, HamiltonianInstanceIndex=0
-            )
-        )
+        hamiltonian_instance_specifier = hamiltonian_class_specifier.instance_specifier_constructor(NumberOfQubits=number_of_qubits,
+                                                                                                    HamiltonianInstanceIndex=0)
+
 
         if read_from_drive_if_present:
-            hamiltonian = self._read_from_drive(
-                hamiltonian_instance_specifier=hamiltonian_instance_specifier,
-                hamiltonian_class_specifier=hamiltonian_class_specifier,
-            )
+            hamiltonian = self._read_from_drive(hamiltonian_instance_specifier=hamiltonian_instance_specifier,
+                                                hamiltonian_class_specifier=hamiltonian_class_specifier)
             if hamiltonian is not None:
                 return hamiltonian
 
-        ##here is super explicit generation:
-        # for j in range(1, number_of_qubits):
-        #     for i in range(1,number_of_qubits-j+1):
-        #         for k in range(1,number_of_qubits-j+1):
-        #             #if there are duplicate indices, we wish to remove them because Z^2 = I
-        #             if subset == ():
-        #                 continue
-        #             if subset not in all_terms_with_duplicates:
-
-        ## Here is generation developed by Daniel
-        # for idxi in range(1, number_of_qubits - 1):
-        #     for j in range(1, int(np.floor((number_of_qubits - idxi) / 2)) + 1):
-        #
-        # for idxi in range(1, number_of_qubits - 2):
-        #     for idxt in range(1, int(np.floor((number_of_qubits - idxi - 1) / 2)) - 1):
-        #         for idxk in range(idxt + 1, number_of_qubits - idxt - idxi - 1):
-        #             hamiltonian_list_representation.append(
-        #                 (2.0, (idxi - 1, idxi + idxt - 1, idxi + idxk - 1, idxi + idxt + idxk - 1)))
-
-        # Here is generation borrowed from qokit
-        subsets_set = set()
-        for k in tqdm(list(range(1, number_of_qubits)), disable=not print_progress_bar):
-            for i, j in combinations(range(1, number_of_qubits - k + 1), 2):
-                # Drop duplicate terms, e.g. Z1Z2Z2Z3 should be just Z1Z3
-
-                # We substract 1 from indices because we typically index qubits from 0
-                if i + k == j:
-                    tup = tuple(sorted((i - 1, j + k - 1)))
-                else:
-                    tup = tuple(sorted((i - 1, i + k - 1, j - 1, j + k - 1)))
-
-                subsets_set = subsets_set.union({tup})
-
-        hamiltonian_list_representation = sorted(
-            [(len(subset) / _NORMALIZATION_LABS, subset) for subset in subsets_set],
-            key=lambda x: x[1],
-        )
-        offset = LABSHamiltonianGenerator.get_LABS_offset(
-            number_of_qubits=number_of_qubits
-        )
+        hamiltonian_list_representation = self.get_LABS_terms(number_of_qubits=number_of_qubits)
         known_energies_dict = None
         if number_of_qubits in _KNOWN_OPTIMAL_ENERGIES_LABS:
             energy = self.get_known_optimal_energy(number_of_qubits=number_of_qubits)
-            known_energies_dict = {"lowest_energy": energy}
+            known_energies_dict = {'lowest_energy': energy}
 
-        return ClassicalHamiltonian(
-            hamiltonian_list_representation=hamiltonian_list_representation,
-            number_of_qubits=number_of_qubits,
-            default_backend=default_backend,
-            hamiltonian_class_specifier=hamiltonian_class_specifier,
-            hamiltonian_instance_specifier=hamiltonian_instance_specifier,
-            known_energies_dict=known_energies_dict,
-            class_specific_data={
-                "offset": self.get_LABS_offset(number_of_qubits=number_of_qubits),
-                "normalization": _NORMALIZATION_LABS,
-            },
-        )
 
-    @staticmethod
-    def get_LABS_offset(number_of_qubits: int):
-        return np.sum([number_of_qubits - k for k in range(1, number_of_qubits)])
+
+
+
+        return ClassicalHamiltonian(hamiltonian_list_representation=hamiltonian_list_representation,
+                                    number_of_qubits=number_of_qubits,
+                                    default_backend=default_backend,
+                                    hamiltonian_class_specifier=hamiltonian_class_specifier,
+                                    hamiltonian_instance_specifier=hamiltonian_instance_specifier,
+                                    known_energies_dict=known_energies_dict,
+                                    class_specific_data={'offset': self.get_LABS_offset(number_of_qubits=number_of_qubits),
+                                                         'normalization':_NORMALIZATION_LABS})
 
     @staticmethod
-    def get_full_energy_value(energy: float, number_of_qubits: int):
-        return _NORMALIZATION_LABS * energy + LABSHamiltonianGenerator.get_LABS_offset(
-            number_of_qubits=number_of_qubits
-        )
+    def get_LABS_offset(number_of_qubits:int):
+        return np.sum([number_of_qubits-k for k in range(1,number_of_qubits)])
 
     @staticmethod
-    def get_merit_factor(energy: float, number_of_qubits: int):
-        full_energy = LABSHamiltonianGenerator.get_full_energy_value(
-            energy=energy, number_of_qubits=number_of_qubits
-        )
-        return number_of_qubits**2 / (2 * full_energy)
+    def get_LABS_terms(number_of_qubits: int):
+        """
+        Terms of the LABS energy E(s) = sum_{k=1}^{N-1} C_k(s)^2, C_k(s) = sum_{i=0}^{N-k-1} s_i s_{i+k}
+        (arXiv:1512.02475), without its constant part (get_LABS_offset) and divided by
+        _NORMALIZATION_LABS, sorted by qubit indices.
+
+        Expanding C_k^2 leaves two kinds of terms, each generated exactly once:
+        s_a s_{a+2k}, weight 2: the cross term s_a s_{a+k} * s_{a+k} s_{a+2k} of C_k^2;
+        s_a s_{a+k1} s_{a+k2} s_{a+k1+k2} with 1 <= k1 < k2, weight 4: a cross term of both
+        C_{k1}^2 and C_{k2}^2.
+        """
+        two_body = [(2 / _NORMALIZATION_LABS, (a, a + 2 * k))
+                    for k in range(1, (number_of_qubits - 1) // 2 + 1)
+                    for a in range(number_of_qubits - 2 * k)]
+        four_body = [(4 / _NORMALIZATION_LABS, (a, a + k1, a + k2, a + k1 + k2))
+                     for k1 in range(1, number_of_qubits)
+                     for k2 in range(k1 + 1, number_of_qubits - k1)
+                     for a in range(number_of_qubits - k1 - k2)]
+        return sorted(two_body + four_body, key=lambda weighted_term: weighted_term[1])
 
     @staticmethod
-    def get_known_optimal_MF(number_of_qubits: int):
-        return (
-            _KNOWN_OPTIMAL_MF_LABS[number_of_qubits]
-            if number_of_qubits in _KNOWN_OPTIMAL_MF_LABS
-            else None
-        )
+    def get_full_energy_value(energy:float,
+                                number_of_qubits:int):
+        return _NORMALIZATION_LABS * energy + LABSHamiltonianGenerator.get_LABS_offset(number_of_qubits=number_of_qubits)
 
     @staticmethod
-    def get_known_optimal_energy(number_of_qubits: int):
+    def get_merit_factor(energy:float,
+                         number_of_qubits:int):
+        full_energy = LABSHamiltonianGenerator.get_full_energy_value(energy=energy,
+                                                          number_of_qubits=number_of_qubits)
+        return number_of_qubits**2/(2*full_energy)
+
+
+    @staticmethod
+    def get_known_optimal_MF(number_of_qubits:int):
+        return _KNOWN_OPTIMAL_MF_LABS[number_of_qubits] if number_of_qubits in _KNOWN_OPTIMAL_MF_LABS else None
+
+    @staticmethod
+    def get_known_optimal_energy(
+                                 number_of_qubits:int):
 
         if number_of_qubits not in _KNOWN_OPTIMAL_ENERGIES_LABS:
             return None
-        return (
-            _KNOWN_OPTIMAL_ENERGIES_LABS[number_of_qubits]
-            - LABSHamiltonianGenerator.get_LABS_offset(
-                number_of_qubits=number_of_qubits
-            )
-        ) / _NORMALIZATION_LABS
+        return (_KNOWN_OPTIMAL_ENERGIES_LABS[number_of_qubits] -
+                LABSHamiltonianGenerator.get_LABS_offset(number_of_qubits=number_of_qubits)) / _NORMALIZATION_LABS
+

@@ -9,23 +9,27 @@
 Cython-optimized QAOA statevector simulator.
 Copyright 2025 USRA
 Authors: Filip B. Maciejewski
-Use, duplication, or disclosure without authors' permission is strictly prohibited.
 """
 
 import numpy as np
-
 cimport numpy as np
-from libc.math cimport cos, exp, sin
-from libc.stdlib cimport free, malloc
+from libc.math cimport cos, sin, exp
+from libc.stdlib cimport malloc, free
 
 # Type definitions for clarity
 ctypedef double complex complex128
 ctypedef np.complex128_t COMPLEX_t
 ctypedef np.float64_t FLOAT_t
 
+# The state is complex64 or complex128; angles and spectra stay double, so a complex64
+# amplitude is multiplied by double coefficients in double and rounded once on store.
+ctypedef fused complex_t:
+    np.complex64_t
+    np.complex128_t
+
 
 cdef void apply_phase_separation_inplace(
-    complex128* state,
+    complex_t* state,
     double angle_PS,
     const double* spectrum,
     int dim
@@ -58,7 +62,7 @@ cdef void apply_phase_separation_inplace(
 
 
 cdef void apply_mixer_operator_inplace(
-    complex128* state,
+    complex_t* state,
     double angle_mixer,
     int number_of_qubits
 ) noexcept nogil:
@@ -75,7 +79,7 @@ cdef void apply_mixer_operator_inplace(
     cdef int total_dim = 1 << number_of_qubits  # 2^number_of_qubits
     cdef double cos_beta = cos(angle_mixer)
     cdef double sin_beta = sin(angle_mixer)
-    cdef complex128 state_0, state_1
+    cdef complex_t state_0, state_1
     cdef double real_0, imag_0, real_1, imag_1
 
     # Apply single-qubit X rotation to each qubit
@@ -113,7 +117,7 @@ cdef void apply_mixer_operator_inplace(
 
 
 cdef void apply_full_qaoa_circuit_inplace(
-    complex128* state,
+    complex_t* state,
     const double* angles_PS,
     const double* angles_mixer,
     const double** spectra_list,
@@ -160,7 +164,7 @@ cdef void apply_full_qaoa_circuit_inplace(
 
 
 def apply_full_qaoa_circuit_cython(
-    np.ndarray[COMPLEX_t, ndim=1] input_state,
+    np.ndarray[complex_t, ndim=1] input_state,
     np.ndarray[FLOAT_t, ndim=1] angles_PS,
     np.ndarray[FLOAT_t, ndim=1] angles_mixer,
     list spectra_list,
@@ -180,21 +184,23 @@ def apply_full_qaoa_circuit_cython(
     """
     # Input validation and variable declarations (all cdef must be at top)
     cdef int depth = len(angles_PS)
+    # Layers cycle through the batches (batch = layer % number_of_batches), so the list
+    # may be shorter than the depth; bounds checking is off, so never read past it.
     cdef int number_of_batches = len(spectra_list)
     cdef int dim = 1 << number_of_qubits
     cdef int i
-    cdef np.ndarray[COMPLEX_t, ndim=1] output_state
+    cdef np.ndarray[complex_t, ndim=1] output_state
     cdef np.ndarray[FLOAT_t, ndim=1] spectrum
     cdef double** spectra_ptrs
     cdef double* angles_PS_ptr
     cdef double* angles_mixer_ptr
-    cdef complex128* state_ptr
+    cdef complex_t* state_ptr
 
     if len(angles_mixer) != depth:
-        raise ValueError(f"angles_mixer length {len(angles_mixer)} != depth {depth}")
+        raise ValueError("angles_mixer length {} != depth {}".format(len(angles_mixer), depth))
 
     if input_state.shape[0] != dim:
-        raise ValueError(f"input_state dimension {input_state.shape[0]} != 2^{number_of_qubits} = {dim}")
+        raise ValueError("input_state dimension {} != 2^{} = {}".format(input_state.shape[0], number_of_qubits, dim))
 
     # Create output array (copy of input)
     output_state = input_state.copy()
@@ -210,13 +216,13 @@ def apply_full_qaoa_circuit_cython(
         for i in range(number_of_batches):
             spectrum = spectra_list[i]
             if spectrum.shape[0] != dim:
-                raise ValueError(f"Spectrum {i} has wrong dimension: {spectrum.shape[0]} != {dim}")
+                raise ValueError("Spectrum {} has wrong dimension: {} != {}".format(i, spectrum.shape[0], dim))
             spectra_ptrs[i] = <double*>spectrum.data
 
         # Get pointer to angles arrays
         angles_PS_ptr = <double*>angles_PS.data
         angles_mixer_ptr = <double*>angles_mixer.data
-        state_ptr = <complex128*>output_state.data
+        state_ptr = <complex_t*>output_state.data
 
         # Call the optimized C function (releases GIL!)
         with nogil:
@@ -238,7 +244,7 @@ def apply_full_qaoa_circuit_cython(
 
 
 def apply_phase_separation_cython(
-    np.ndarray[COMPLEX_t, ndim=1] input_state,
+    np.ndarray[complex_t, ndim=1] input_state,
     double angle_PS,
     np.ndarray[FLOAT_t, ndim=1] spectrum
 ):
@@ -253,10 +259,10 @@ def apply_phase_separation_cython(
     cdef int dim = input_state.shape[0]
 
     if spectrum.shape[0] != dim:
-        raise ValueError(f"Spectrum dimension {spectrum.shape[0]} != state dimension {dim}")
+        raise ValueError("Spectrum dimension {} != state dimension {}".format(spectrum.shape[0], dim))
 
-    cdef np.ndarray[COMPLEX_t, ndim=1] output_state = input_state.copy()
-    cdef complex128* state_ptr = <complex128*>output_state.data
+    cdef np.ndarray[complex_t, ndim=1] output_state = input_state.copy()
+    cdef complex_t* state_ptr = <complex_t*>output_state.data
     cdef double* spectrum_ptr = <double*>spectrum.data
 
     with nogil:
@@ -266,7 +272,7 @@ def apply_phase_separation_cython(
 
 
 def apply_mixer_operator_cython(
-    np.ndarray[COMPLEX_t, ndim=1] input_state,
+    np.ndarray[complex_t, ndim=1] input_state,
     double angle_mixer,
     int number_of_qubits
 ):
@@ -281,12 +287,324 @@ def apply_mixer_operator_cython(
     cdef int dim = 1 << number_of_qubits
 
     if input_state.shape[0] != dim:
-        raise ValueError(f"State dimension {input_state.shape[0]} != 2^{number_of_qubits}")
+        raise ValueError("State dimension {} != 2^{}".format(input_state.shape[0], number_of_qubits))
 
-    cdef np.ndarray[COMPLEX_t, ndim=1] output_state = input_state.copy()
-    cdef complex128* state_ptr = <complex128*>output_state.data
+    cdef np.ndarray[complex_t, ndim=1] output_state = input_state.copy()
+    cdef complex_t* state_ptr = <complex_t*>output_state.data
 
     with nogil:
         apply_mixer_operator_inplace(state_ptr, angle_mixer, number_of_qubits)
+
+    return output_state
+
+
+# =====================================================================
+# Warm-Started QAOA Implementation
+# =====================================================================
+
+cdef void apply_mixer_operator_WS_identical_inplace(
+    complex_t* state,
+    double angle_mixer,
+    double term_X,
+    double term_Z,
+    int number_of_qubits
+) noexcept nogil:
+    """
+    Apply warm-started mixer operator with IDENTICAL bias across all qubits.
+
+    The WS mixer applies: U = exp(-i*beta*(X*term_X + Z*term_Z))
+
+    Matrix form:
+    [[cos(β) - i*sin(β)*Z,   -i*sin(β)*2*X],
+     [-i*sin(β)*2*X,          cos(β) + i*sin(β)*Z]]
+
+    :param state: Statevector array (modified in-place)
+    :param angle_mixer: Mixer angle beta
+    :param term_X: X coefficient = 2*sqrt(c*(1-c))
+    :param term_Z: Z coefficient = 1 - 2*c
+    :param number_of_qubits: Number of qubits
+    """
+    cdef int qubit_idx, block_start, i, idx_0, idx_1
+    cdef int stride, block_size
+    cdef int total_dim = 1 << number_of_qubits
+    cdef double cos_beta = cos(angle_mixer)
+    cdef double sin_beta = sin(angle_mixer)
+    cdef double a_real, a_imag, b_real, b_imag
+    cdef double new_a_real, new_a_imag, new_b_real, new_b_imag
+    cdef double sin_Z = sin_beta * term_Z
+    cdef double sin_2X = sin_beta * term_X
+
+    # Apply single-qubit WS rotation to each qubit
+    for qubit_idx in range(number_of_qubits):
+        stride = 1 << qubit_idx
+        block_size = stride << 1
+
+        block_start = 0
+        while block_start < total_dim:
+            for i in range(stride):
+                idx_0 = block_start + i
+                idx_1 = block_start + i + stride
+
+                # Read current values
+                a_real = state[idx_0].real
+                a_imag = state[idx_0].imag
+                b_real = state[idx_1].real
+                b_imag = state[idx_1].imag
+
+                # Apply WS mixer transformation
+                # state[0]' = (cos(β) - i*sin(β)*Z)*a - i*sin(β)*X*b
+                new_a_real = cos_beta * a_real + sin_Z * a_imag + sin_2X * b_imag
+                new_a_imag = cos_beta * a_imag - sin_Z * a_real - sin_2X * b_real
+
+                # state[1]' = (cos(β) + i*sin(β)*Z)*b - i*sin(β)*X*a
+                new_b_real = cos_beta * b_real - sin_Z * b_imag + sin_2X * a_imag
+                new_b_imag = cos_beta * b_imag + sin_Z * b_real - sin_2X * a_real
+
+                # Write back
+                state[idx_0].real = new_a_real
+                state[idx_0].imag = new_a_imag
+                state[idx_1].real = new_b_real
+                state[idx_1].imag = new_b_imag
+
+            block_start = block_start + block_size
+
+
+cdef void apply_mixer_operator_WS_perqubit_inplace(
+    complex_t* state,
+    double angle_mixer,
+    const double* terms_X,
+    const double* terms_Z,
+    int number_of_qubits
+) noexcept nogil:
+    """
+    Apply warm-started mixer operator with PER-QUBIT bias parameters.
+
+    :param state: Statevector array (modified in-place)
+    :param angle_mixer: Mixer angle beta
+    :param terms_X: Array of X coefficients per qubit, length = number_of_qubits
+    :param terms_Z: Array of Z coefficients per qubit, length = number_of_qubits
+    :param number_of_qubits: Number of qubits
+    """
+    cdef int qubit_idx, block_start, i, idx_0, idx_1
+    cdef int stride, block_size
+    cdef int total_dim = 1 << number_of_qubits
+    cdef double cos_beta = cos(angle_mixer)
+    cdef double sin_beta = sin(angle_mixer)
+    cdef double a_real, a_imag, b_real, b_imag
+    cdef double new_a_real, new_a_imag, new_b_real, new_b_imag
+    cdef double sin_Z, sin_2X, term_X, term_Z
+
+    # Apply single-qubit WS rotation to each qubit
+    for qubit_idx in range(number_of_qubits):
+        stride = 1 << qubit_idx
+        block_size = stride << 1
+
+        # The pair (idx_0, idx_1) differs in flat-index bit qubit_idx. Qubit 0 is the first
+        # factor of the initial product state (the most significant bit), so bit qubit_idx
+        # belongs to qubit number_of_qubits - 1 - qubit_idx and takes that qubit's terms.
+        term_X = terms_X[number_of_qubits - 1 - qubit_idx]
+        term_Z = terms_Z[number_of_qubits - 1 - qubit_idx]
+        sin_Z = sin_beta * term_Z
+        sin_2X = sin_beta * term_X
+
+        block_start = 0
+        while block_start < total_dim:
+            for i in range(stride):
+                idx_0 = block_start + i
+                idx_1 = block_start + i + stride
+
+                # Read current values
+                a_real = state[idx_0].real
+                a_imag = state[idx_0].imag
+                b_real = state[idx_1].real
+                b_imag = state[idx_1].imag
+
+                # Apply WS mixer transformation
+                new_a_real = cos_beta * a_real + sin_Z * a_imag + sin_2X * b_imag
+                new_a_imag = cos_beta * a_imag - sin_Z * a_real - sin_2X * b_real
+
+                new_b_real = cos_beta * b_real - sin_Z * b_imag + sin_2X * a_imag
+                new_b_imag = cos_beta * b_imag + sin_Z * b_real - sin_2X * a_real
+
+                # Write back
+                state[idx_0].real = new_a_real
+                state[idx_0].imag = new_a_imag
+                state[idx_1].real = new_b_real
+                state[idx_1].imag = new_b_imag
+
+            block_start = block_start + block_size
+
+
+cdef void apply_full_qaoa_circuit_inplace_WS(
+    complex_t* state,
+    const double* angles_PS,
+    const double* angles_mixer,
+    const double** spectra_list,
+    const double* terms_X,
+    const double* terms_Z,
+    int number_of_qubits,
+    int depth,
+    int number_of_batches,
+    int identical_bias
+) noexcept nogil:
+    """
+    Apply complete warm-started QAOA circuit.
+
+    :param state: Initial statevector (modified in-place)
+    :param angles_PS: Array of phase separation angles
+    :param angles_mixer: Array of mixer angles
+    :param spectra_list: Array of pointers to spectra
+    :param terms_X: X coefficients (length 1 if identical_bias, else number_of_qubits)
+    :param terms_Z: Z coefficients (length 1 if identical_bias, else number_of_qubits)
+    :param number_of_qubits: Number of qubits
+    :param depth: Circuit depth
+    :param number_of_batches: Number of time-blocking batches
+    :param identical_bias: 1 if bias is identical across qubits, 0 otherwise
+    """
+    cdef int layer_idx, batch_idx
+    cdef int dim = 1 << number_of_qubits
+    cdef const double* spectrum
+
+    for layer_idx in range(depth):
+        # Select spectrum for this layer (time blocking)
+        batch_idx = layer_idx % number_of_batches
+        spectrum = spectra_list[batch_idx]
+
+        # Apply phase separation
+        apply_phase_separation_inplace(
+            state,
+            angles_PS[layer_idx],
+            spectrum,
+            dim
+        )
+
+        # Apply WS mixer
+        if identical_bias:
+            apply_mixer_operator_WS_identical_inplace(
+                state,
+                angles_mixer[layer_idx],
+                terms_X[0],
+                terms_Z[0],
+                number_of_qubits
+            )
+        else:
+            apply_mixer_operator_WS_perqubit_inplace(
+                state,
+                angles_mixer[layer_idx],
+                terms_X,
+                terms_Z,
+                number_of_qubits
+            )
+
+
+def apply_full_qaoa_circuit_cython_WS(
+    np.ndarray[complex_t, ndim=1] input_state,
+    np.ndarray[FLOAT_t, ndim=1] angles_PS,
+    np.ndarray[FLOAT_t, ndim=1] angles_mixer,
+    np.ndarray[FLOAT_t, ndim=2] XZ_terms,
+    list spectra_list,
+    int number_of_qubits
+):
+    """
+    Python wrapper for warm-started QAOA circuit.
+
+    :param input_state: Initial statevector
+    :param angles_PS: Phase separation angles
+    :param angles_mixer: Mixer angles
+    :param XZ_terms: 2D array of shape (n_qubits, 2) or (1, 2)
+                     XZ_terms[:, 0] = X coefficients
+                     XZ_terms[:, 1] = Z coefficients
+                     If shape is (1, 2), identical bias is assumed
+    :param spectra_list: List of spectra arrays
+    :param number_of_qubits: Number of qubits
+    :return: Final statevector
+    """
+    # Variable declarations
+    cdef int depth = len(angles_PS)
+    # Layers cycle through the batches (batch = layer % number_of_batches), so the list
+    # may be shorter than the depth; bounds checking is off, so never read past it.
+    cdef int number_of_batches = len(spectra_list)
+    cdef int dim = 1 << number_of_qubits
+    cdef int i
+    cdef int identical_bias
+    cdef np.ndarray[complex_t, ndim=1] output_state
+    cdef np.ndarray[FLOAT_t, ndim=1] spectrum
+    cdef np.ndarray[FLOAT_t, ndim=1] terms_X_array
+    cdef np.ndarray[FLOAT_t, ndim=1] terms_Z_array
+    cdef double** spectra_ptrs
+    cdef double* angles_PS_ptr
+    cdef double* angles_mixer_ptr
+    cdef double* terms_X_ptr
+    cdef double* terms_Z_ptr
+    cdef complex_t* state_ptr
+
+    # Input validation
+    if len(angles_mixer) != depth:
+        raise ValueError("angles_mixer length {} != depth {}".format(len(angles_mixer), depth))
+
+    if input_state.shape[0] != dim:
+        raise ValueError("input_state dimension {} != 2^{}".format(input_state.shape[0], number_of_qubits))
+
+    # Check if bias is identical or per-qubit
+    cdef int xz_shape_0 = XZ_terms.shape[0]
+    cdef int xz_shape_1 = XZ_terms.shape[1]
+
+    if xz_shape_0 == 1:
+        identical_bias = 1
+        terms_X_array = XZ_terms[0:1, 0].copy()
+        terms_Z_array = XZ_terms[0:1, 1].copy()
+    elif xz_shape_0 == number_of_qubits:
+        identical_bias = 0
+        terms_X_array = XZ_terms[:, 0].copy()
+        terms_Z_array = XZ_terms[:, 1].copy()
+    else:
+        raise ValueError("XZ_terms has shape ({}, {}), expected (1, 2) or ({}, 2)".format(xz_shape_0, xz_shape_1, number_of_qubits))
+
+    # Create output array
+    output_state = input_state.copy()
+
+    # Convert spectra list to C array of pointers
+    spectra_ptrs = <double**>malloc(number_of_batches * sizeof(double*))
+
+    if spectra_ptrs == NULL:
+        raise MemoryError("Failed to allocate memory for spectra pointers")
+
+
+
+    try:
+        # Store pointers to spectrum data
+        for i in range(number_of_batches):
+            spectrum = spectra_list[i]
+            if spectrum.shape[0] != dim:
+                raise ValueError("Spectrum {} has wrong dimension: {} != {}".format(i, spectrum.shape[0], dim))
+            spectra_ptrs[i] = <double*>spectrum.data
+
+
+
+        # Get pointers
+        angles_PS_ptr = <double*>angles_PS.data
+        angles_mixer_ptr = <double*>angles_mixer.data
+        terms_X_ptr = <double*>terms_X_array.data
+        terms_Z_ptr = <double*>terms_Z_array.data
+        state_ptr = <complex_t*>output_state.data
+
+        # Call the optimized C function (releases GIL!)
+        with nogil:
+            apply_full_qaoa_circuit_inplace_WS(
+                state_ptr,
+                angles_PS_ptr,
+                angles_mixer_ptr,
+                <const double**>spectra_ptrs,
+                terms_X_ptr,
+                terms_Z_ptr,
+                number_of_qubits,
+                depth,
+                number_of_batches,
+                identical_bias
+            )
+
+    finally:
+        # Clean up
+        free(spectra_ptrs)
 
     return output_state

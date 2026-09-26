@@ -1,52 +1,54 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
-# Use, duplication, or disclosure without authors' permission is strictly prohibited.
-from typing import Any, Dict, List, Optional, Tuple, Union
+import time
+from typing import List, Optional, Tuple, Dict, Any, Union
 
 import numpy as np
+from numba.core.types import float64
 
-# Lazy monkey-patching of cupy
-try:
-    pass
-except (ImportError, ModuleNotFoundError):
-    pass
+#Lazy monkey-patching of cupy
+from quapopt import AVAILABLE_SIMULATORS
+if 'cupy' in AVAILABLE_SIMULATORS:
+    import cupy as cp
+else:
+    import numpy as cp
 
+from quapopt import AVAILABLE_SIMULATORS
 
 import pandas as pd
 
 from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
-from quapopt.circuits.noise.simulation.ClassicalMeasurementNoiseSampler import (
-    ClassicalMeasurementNoiseSampler,
-)
-from quapopt.data_analysis.data_handling import STANDARD_NAMES_DATA_TYPES as SNDT
-from quapopt.data_analysis.data_handling import STANDARD_NAMES_VARIABLES as SNV
+from quapopt.circuits.noise.simulation.ClassicalMeasurementNoiseSampler import ClassicalMeasurementNoiseSampler
 from quapopt.data_analysis.data_handling import LoggingLevel
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
-    ClassicalHamiltonian,
-)
-from quapopt.optimization import EnergyResultMain, HamiltonianSolutionsSampler
-from quapopt.optimization.QAOA import QAOAFunctionInputFormat as FIFormat
-from quapopt.optimization.QAOA import QAOAResult
+from quapopt.data_analysis.data_handling import STANDARD_NAMES_DATA_TYPES as SNDT, \
+    STANDARD_NAMES_VARIABLES as SNV
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
+from quapopt.optimization.QAOA import QAOAFunctionInputFormat as FIFormat, QAOAResult
 from quapopt.optimization.QAOA.QAOARunnerBase import QAOARunnerBase
-
+from quapopt.optimization.QAOA.simulation.direct import cupy_kernels
+from quapopt.optimization import EnergyResultMain
+from quapopt.optimization import HamiltonianSolutionsSampler
 
 class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
+
     """
     Class for running QAOA with samples.
     """
 
-    def __init__(
-        self,
-        hamiltonian_representations_cost: List[ClassicalHamiltonian],
-        hamiltonian_representations_phase: List[ClassicalHamiltonian] = None,
-        store_n_best_results: int = 1,
-        store_full_information_in_history=False,
-        numpy_rng_sampling=None,
-        solve_at_initialization=False,
-        logging_level: Optional[LoggingLevel] = None,
-        logger_kwargs: Optional[Dict[str, Any]] = None,
-        initialize_backend_kwargs: Optional[dict] = None,
-    ) -> None:
+    def __init__(self,
+                 hamiltonian_representations_cost: List[ClassicalHamiltonian],
+                 hamiltonian_representations_phase: List[ClassicalHamiltonian] = None,
+                 store_n_best_results: int = 1,
+                 store_full_information_in_history=False,
+                 numpy_rng_sampling=None,
+                 prefer_device_sampling: Optional[bool] = None,
+                 solve_at_initialization=False,
+                 logging_level: Optional[LoggingLevel] = None,
+                 logger_kwargs: Optional[Dict[str, Any]] = None,
+                 initialize_backend_kwargs: Optional[dict] = None,
+                 precision: Optional[str] = None,
+                 renormalize_probabilities: bool = False,
+                 ) -> None:
         """
         Initializes the QAOA runner for sampling solutions.
         :param hamiltonian_representations_cost:
@@ -54,254 +56,229 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
         :param store_n_best_results:
         :param store_full_information_in_history:
         :param numpy_rng_sampling:
+        :param prefer_device_sampling: None draws and evaluates the shots on the device when cupy is present, the route fits, and the device is measured to be faster for the state's size (a cupy state always); True whenever the route fits; False keeps them on the host
         :param solve_at_initialization:
         :param logging_level:
         :param logger_kwargs:
         :param initialize_backend_kwargs: kwargs passed to the backend initialization method if not initialized externally
+        :param precision: 'single', 'double' or None for the package default at construction (see QAOARunnerBase)
+        :param renormalize_probabilities: divide exact expectation values by the float64 sum of the same probabilities (see QAOARunnerBase)
         """
 
-        super().__init__(
-            hamiltonian_representations_cost=hamiltonian_representations_cost,
-            hamiltonian_representations_phase=hamiltonian_representations_phase,
-            store_full_information_in_history=store_full_information_in_history,
-            numpy_rng_sampling=numpy_rng_sampling,
-            solve_at_initialization=solve_at_initialization,
-            logging_level=logging_level,
-            logger_kwargs=logger_kwargs,
-            store_n_best_results=store_n_best_results,
-        )
+
+
+        super().__init__(hamiltonian_representations_cost=hamiltonian_representations_cost,
+                         hamiltonian_representations_phase=hamiltonian_representations_phase,
+                         store_full_information_in_history=store_full_information_in_history,
+                         numpy_rng_sampling=numpy_rng_sampling,
+                         solve_at_initialization=solve_at_initialization,
+                         logging_level=logging_level,
+                         logger_kwargs=logger_kwargs,
+                         store_n_best_results=store_n_best_results,
+                         precision=precision,
+                         renormalize_probabilities=renormalize_probabilities)
+        self._prefer_device_sampling = prefer_device_sampling
+        # Per Hamiltonian representation index: (the host spectrum, its copy in the backend's
+        # array type). The copy stays here because the Hamiltonian belongs to the caller, whose
+        # other readers expect its spectrum as a host array.
+        self._backend_spectra: Dict[int, Tuple[Any, Any]] = {}
 
         self._initialize_backend_kwargs = initialize_backend_kwargs
         if self._initialize_backend_kwargs is None:
             self._initialize_backend_kwargs = {}
 
-    def update_history(self, qaoa_result: QAOAResult):
+
+    def update_history(self,
+                       qaoa_result: QAOAResult):
 
         self._update_history(qaoa_result=qaoa_result)
 
-        if self._store_n_best_results == 1:
-            best_bitstrings = [qaoa_result.bitstring_best]
-            best_energies = [qaoa_result.energy_best]
-        else:
-            # If there is more than one, we need to additionaly sort the results
-            qaoa_result.sort_energies_and_bitstrings()
-            best_bitstrings = [
-                tuple(x)
-                for x in qaoa_result.bitstrings_array[0 : self._store_n_best_results]
-            ]
-            best_energies = qaoa_result.bitstrings_energies[
-                0 : self._store_n_best_results
-            ]
+        if qaoa_result.bitstring_best is not None:
+            if self._store_n_best_results == 1:
+                best_bitstrings = [qaoa_result.bitstring_best]
+                best_energies = [qaoa_result.energy_best]
+            else:
+                # If there is more than one, we need to additionaly sort the results
+                qaoa_result.sort_energies_and_bitstrings()
+                best_bitstrings = [tuple(x) for x in qaoa_result.bitstrings_array[0:self._store_n_best_results]]
+                best_energies = qaoa_result.bitstrings_energies[0:self._store_n_best_results]
 
-        for bts, en in zip(best_bitstrings, best_energies):
-            tup_to_store = (
-                tuple(bts),
-                qaoa_result.hamiltonian_representation_index,
-                qaoa_result,
-            )
-            self._best_results_container.add_result(
-                result_to_add=tup_to_store, score=en
-            )
+            for bts, en in zip(best_bitstrings, best_energies):
+                tup_to_store = (tuple(bts),
+                                qaoa_result.hamiltonian_representation_index,
+                                qaoa_result)
+                self._best_results_container.add_result(result_to_add=tup_to_store,
+                                                        score=en)
+        else:
+            self._best_results_container.add_result(result_to_add=qaoa_result.trial_index,
+                                                    score=qaoa_result.energy_mean)
 
     def get_best_results(self) -> List[Tuple[float, Tuple[Tuple[int, ...], int]]]:
         return self._best_results_container.get_best_results()
 
-    def log_results(
-        self,
-        qaoa_result: QAOAResult,
-        additional_annotations: Optional[Dict[str, Any]] = None,
-        table_name_prefix: Optional[str] = None,
-    ) -> None:
+    def log_results(self,
+                     qaoa_result: QAOAResult,
+                     additional_annotations: Optional[Dict[str, Any]] = None,
+                    table_name_prefix:Optional[str]=None) -> None:
 
-        if self.results_logger is None or self.logging_level in [
-            None,
-            LoggingLevel.NONE,
-        ]:
+
+        if self.results_logger is None or self.logging_level in [None, LoggingLevel.NONE]:
             return
 
         optimization_overview_df = qaoa_result.to_dataframe_main()
-        self.results_logger.write_results(
-            dataframe=optimization_overview_df,
-            data_type=SNDT.OptimizationOverview,
-            additional_annotation_dict=additional_annotations,
-            table_name_prefix=table_name_prefix,
-        )
+        self.results_logger.write_results(dataframe=optimization_overview_df,
+                                          data_type=SNDT.OptimizationOverview,
+                                          additional_annotation_dict=additional_annotations,
+                                          table_name_prefix=table_name_prefix)
 
-        energies_save = qaoa_result.bitstrings_energies.tolist()
+        if qaoa_result.bitstrings_energies is not None:
 
-        energies_main = pd.DataFrame(data={SNV.Energy.id_long: energies_save})
-        energies_dt = SNDT.Energies
+            energies_save = qaoa_result.bitstrings_energies.tolist()
 
-        self.results_logger.write_results(
-            dataframe=qaoa_result.annotate_dataframe(energies_main),
-            data_type=energies_dt,
-            additional_annotation_dict=additional_annotations,
-            table_name_prefix=table_name_prefix,
-        )
+            energies_main = pd.DataFrame(data={SNV.Energy.id_long: energies_save})
+            energies_dt = SNDT.Energies
 
-        bitstrings_main = pd.DataFrame(
-            data={SNV.Bitstring.id_long: qaoa_result.bitstrings_array.tolist()}
-        )
+            self.results_logger.write_results(dataframe=qaoa_result.annotate_dataframe(energies_main),
+                                              data_type=energies_dt,
+                                              additional_annotation_dict=additional_annotations,
+                                              table_name_prefix=table_name_prefix)
+        if qaoa_result.bitstrings_array is not None:
 
-        self.results_logger.write_results(
-            dataframe=qaoa_result.annotate_dataframe(bitstrings_main),
-            data_type=SNDT.Bitstrings,
-            additional_annotation_dict=additional_annotations,
-            table_name_prefix=table_name_prefix,
-        )
+            bitstrings_main = pd.DataFrame(data={SNV.Bitstring.id_long: qaoa_result.bitstrings_array.tolist()})
 
-    def run_qaoa(
-        self,
-        *args,
-        qaoa_depth: int,
-        number_of_samples: int,
-        measurement_noise: ClassicalMeasurementNoiseSampler = None,
-        numpy_rng_sampling=None,
-        input_format: FIFormat = FIFormat.direct_list,
-        return_raw_result=False,
-        backend_name=None,
-    ) -> Union[QAOAResult, Tuple[QAOAResult, Any]]:
 
-        if number_of_samples == np.inf:
-            raise ValueError(
-                "Infinite samples are not supported, please use QAOARunnerStatevector class."
-            )
+            self.results_logger.write_results(dataframe=qaoa_result.annotate_dataframe(bitstrings_main),
+                                              data_type=SNDT.Bitstrings,
+                                              additional_annotation_dict=additional_annotations,
+                                              table_name_prefix=table_name_prefix)
 
-        if self._backends is None:
-            _initialize_backend_kwargs = self._initialize_backend_kwargs.copy()
 
-            if backend_name is None:
-                backend_name = _initialize_backend_kwargs.get("backend_name", None)
-                if backend_name is None:
-                    backend_name = "python"
+    def _sample_and_evaluate(self,
+                             statevector: np.ndarray | cp.ndarray,
+                             number_of_samples: int,
+                             hamiltonian_i: ClassicalHamiltonian,
+                             numpy_rng: np.random.Generator | cp.random.Generator):
+        """Host rows and host float64 energies of `number_of_samples` shots from `statevector`.
 
-            if "backend_name" in _initialize_backend_kwargs:
-                del _initialize_backend_kwargs["backend_name"]
-
-            if "qaoa_depth" in _initialize_backend_kwargs:
-                del _initialize_backend_kwargs["qaoa_depth"]
-
-            if backend_name == "qokit":
-                self.initialize_backend_qokit(**_initialize_backend_kwargs)
-            elif backend_name == "qiskit":
-                self.initialize_backend_qiskit(
-                    qaoa_depth=qaoa_depth, **_initialize_backend_kwargs
-                )
-            elif backend_name == "python":
-                self.initialize_backend_python(**_initialize_backend_kwargs)
-            else:
-                raise ValueError("Only qokit and qiskit backends are supported.")
+        With cupy present the shots are drawn on the device (a host statevector is uploaded
+        once by the sampler) and the energies of the drawn rows are evaluated there; only the
+        rows and the energies come down. When the sampler keeps the draw on the host (a host
+        statevector below the measured size crossover under the default, or a device route
+        too large for the free device memory) it returns host indices, and the host
+        evaluator runs on host rows. Without cupy, or with `prefer_device_sampling=False`,
+        the host sampler runs as before on a host copy of the state."""
+        if 'cupy' in AVAILABLE_SIMULATORS and self._prefer_device_sampling is not False:
+            indices = em.sample_indices_from_statevector(statevector=statevector,
+                                                         number_of_samples=number_of_samples,
+                                                         numpy_rng=numpy_rng,
+                                                         prefer_device=self._prefer_device_sampling)
+            bitstrings_array = em.indices_to_bitstrings(indices, hamiltonian_i.number_of_qubits)
+            if isinstance(bitstrings_array, cp.ndarray):
+                energies_array = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array,
+                                                               backend_computation='cupy',
+                                                               backend_output='numpy')
+                return cp.asnumpy(bitstrings_array), energies_array
         else:
-            if backend_name is not None:
-                assert backend_name == self._backend_name, (
-                    "Backend name is different than the one used during initialization."
-                    "Please use a new instance of the class if you wish to change backend_computation."
-                )
-        if numpy_rng_sampling is None:
-            numpy_rng_sampling = self._numpy_rng_sampling
+            bitstrings_array = em.sample_from_statevector(statevector=statevector,
+                                                          number_of_samples=number_of_samples,
+                                                          numpy_rng=numpy_rng,
+                                                          sampling_method='auto',
+                                                          prefer_device=False)
+        return bitstrings_array, hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array)
 
-        angles, hamiltonian_representation_index, trial_index = self._input_handler(
-            args=args, input_format=input_format, qaoa_depth=qaoa_depth
-        )
-
+    def _evaluate_qaoa_finite_samples(self,
+                                      angles:List[float]|np.ndarray|cp.ndarray,
+                                      qaoa_depth: int,
+                                      number_of_samples: int,
+                                      hamiltonian_representation_index,
+                                      trial_index:int,
+                                      numpy_rng_sampling:np.random.Generator|cp.random.Generator,
+                                      measurement_noise:Optional[ClassicalMeasurementNoiseSampler]=None,
+                                      return_raw_result:bool=False,
+                                      bias_parameters_WS:Optional[List[float]|float|np.ndarray|cp.ndarray]=None,
+                                      ):
         gammas_j = angles[:qaoa_depth]
         betas_j = angles[qaoa_depth:]
 
-        hamiltonian_i = self._hamiltonian_representations_cost[
-            hamiltonian_representation_index
-        ]
+        if number_of_samples in [np.inf, None]:
+            raise NotImplementedError("Please use _evaluate_qaoa_infinite_samples instead for infinite samples.")
+
 
         backend_i = self._backends[hamiltonian_representation_index]
+        hamiltonian_i = self._hamiltonian_representations_cost[hamiltonian_representation_index]
 
-        if self._backend_name.lower() in ["qokit"]:
-            _result = backend_i.simulate_qaoa(np.array(gammas_j) * 2, betas_j)
-            statevector_ideal = backend_i.get_statevector(_result)
-            bitstrings_array = em.sample_from_statevector(
-                statevector=statevector_ideal,
-                number_of_samples=number_of_samples,
-                numpy_rng=numpy_rng_sampling,
-                sampling_method="auto",
-            )
+        energies_array = None
+        if self._backend_name.lower() in ['qiskit']:
 
-        elif self._backend_name.lower() in ["qiskit"]:
             statevector_ideal = None
-            (_result, df_job_metadata), bitstrings_array = backend_i.run_qaoa(
-                angles_PHASE=gammas_j.reshape(qaoa_depth),
-                angles_MIXER=betas_j.reshape(qaoa_depth),
-                number_of_samples=number_of_samples,
-            )
+            (_result,df_job_metadata), bitstrings_array = backend_i.run_qaoa(angles_PHASE=gammas_j.reshape(qaoa_depth),
+                                                                             angles_MIXER=betas_j.reshape(qaoa_depth),
+                                                                             number_of_samples=number_of_samples,
+                                                                             bias_parameters_WS=bias_parameters_WS)
 
-            if self.results_logger is not None and self.logging_level not in [
-                None,
-                LoggingLevel.NONE,
-            ]:
 
-                self.results_logger.write_results(
-                    dataframe=df_job_metadata,
-                    data_type=SNDT.JobMetadata,
-                    additional_annotation_dict=None,
-                )
+            if self.results_logger is not None and self.logging_level not in [None, LoggingLevel.NONE]:
 
-        elif self._backend_name.lower() in ["python"]:
-            _result = backend_i.get_qaoa_statevector(
-                angles_mixer=betas_j.reshape(qaoa_depth),
-                angles_PS=gammas_j.reshape(qaoa_depth),
-            )
-            statevector_ideal = _result.reshape(
-                -1,
-            )
-            bitstrings_array = em.sample_from_statevector(
-                statevector=statevector_ideal,
-                number_of_samples=number_of_samples,
-                numpy_rng=numpy_rng_sampling,
-                sampling_method="auto",
-            )
+                self.results_logger.write_results(dataframe=df_job_metadata,
+                                                  data_type=SNDT.JobMetadata,
+                                                  additional_annotation_dict=None)
+
+        elif self._backend_name.lower() in ['python']:
+            _result = backend_i.get_qaoa_statevector(angles_mixer=betas_j.reshape(qaoa_depth),
+                                                     angles_PS=gammas_j.reshape(qaoa_depth),
+                                                     bias_parameters_WS=bias_parameters_WS)
+            statevector_ideal = _result.reshape(-1, )
+            bitstrings_array, energies_array = self._sample_and_evaluate(statevector=statevector_ideal,
+                                                                         number_of_samples=number_of_samples,
+                                                                         hamiltonian_i=hamiltonian_i,
+                                                                         numpy_rng=numpy_rng_sampling)
+        elif self._backend_name.lower() in ['pytorch']:
+
+
+            raise NotImplementedError("PyTorch backend does not support sampling yet.")
+
+
 
         else:
-            raise ValueError(
-                f"Unsupported backend: {self._backend_name}; supported backends: qokit, qiskit, python"
-            )
+            raise ValueError(f"Unsupported backend: {self._backend_name}; supported backends: qiskit, python")
 
-        energies_array = hamiltonian_i.evaluate_energy(
-            bitstrings_array=bitstrings_array
-        )
+
+        if energies_array is None:
+            energies_array = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array)
+
 
         exp_value_float = np.mean(energies_array)
-        # raise KeyboardInterrupt
+        #raise KeyboardInterrupt
 
-        qaoa_result = QAOAResult(
-            statevector=statevector_ideal,
-            bitstrings_array=bitstrings_array,
-            bitstrings_energies=energies_array,
-            trial_index=trial_index,
-            hamiltonian_representation_index=hamiltonian_representation_index,
-            angles=angles,
-        )
+        qaoa_result = QAOAResult(statevector=statevector_ideal,
+                                 bitstrings_array=bitstrings_array,
+                                 bitstrings_energies=energies_array,
+                                 trial_index=trial_index,
+                                 hamiltonian_representation_index=hamiltonian_representation_index,
+                                 angles=angles,
+                                 bias_parameters_WS=bias_parameters_WS)
         qaoa_result.sort_energies_and_bitstrings()
-        qaoa_result.energy_result = EnergyResultMain(
-            energy_mean_noiseless=exp_value_float,
-            energy_best_noiseless=qaoa_result.bitstrings_energies[0],
-            bitstring_best_noiseless=qaoa_result.bitstrings_array[0],
-        )
+        qaoa_result.energy_result = EnergyResultMain(energy_mean_noiseless=exp_value_float,
+                                                     energy_best_noiseless=qaoa_result.bitstrings_energies[0],
+                                                     bitstring_best_noiseless=qaoa_result.bitstrings_array[0],
+                                                     )
         qaoa_result.update_main_energy(noisy=False)
 
         # log results to file
 
         if measurement_noise is None:
-            # if there is no measurement noise, we can log the results without additional annotations
+            #if there is no measurement noise, we can log the results without additional annotations
             table_name_prefix_no_cmns = None
             additional_annotations_no_cmns = None
         else:
-            # if there is measurement noise, the noiseless results are "additional" because they are not used in the
-            # main optimization loop
-            table_name_prefix_no_cmns = "CMNS=False"
+            #if there is measurement noise, the noiseless results are "additional" because they are not used in the
+            #main optimization loop
+            table_name_prefix_no_cmns = 'CMNS=False'
             additional_annotations_no_cmns = None
 
-        self.log_results(
-            qaoa_result=qaoa_result,
-            table_name_prefix=table_name_prefix_no_cmns,
-            additional_annotations=additional_annotations_no_cmns,
-        )
+        self.log_results(qaoa_result=qaoa_result,
+                         table_name_prefix=table_name_prefix_no_cmns,
+                         additional_annotations=additional_annotations_no_cmns)
 
         if measurement_noise is None:
             if return_raw_result:
@@ -309,27 +286,22 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
             return qaoa_result
 
         enegy_result_noiseless = qaoa_result.energy_result
-        bitstrings_array_noisy = measurement_noise.add_noise_to_samples(
-            ideal_samples=bitstrings_array
-        )
-        energies_noisy = hamiltonian_i.evaluate_energy(
-            bitstrings_array=bitstrings_array_noisy
-        )
+        bitstrings_array_noisy = measurement_noise.add_noise_to_samples(ideal_samples=bitstrings_array)
+        energies_noisy = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array_noisy)
         # energies_noisy = em.calculate_energies_from_bitstrings_2_local(bitstrings_array=bitstrings_array_noisy,
+        #                                           adjacency_matrix=hamiltonian_i.get_adjacency_matrix(),
         #                                           computation_backend=hamiltonian_i._default_backend)
         #
 
         exp_value_noisy = np.mean(energies_noisy)
 
-        qaoa_result = QAOAResult(
-            statevector=statevector_ideal,
-            bitstrings_array=bitstrings_array_noisy,
-            bitstrings_energies=energies_noisy,
-            trial_index=trial_index,
-            hamiltonian_representation_index=hamiltonian_representation_index,
-            energy_result=enegy_result_noiseless,
-            angles=angles,
-        )
+        qaoa_result = QAOAResult(statevector=statevector_ideal,
+                                 bitstrings_array=bitstrings_array_noisy,
+                                 bitstrings_energies=energies_noisy,
+                                 trial_index=trial_index,
+                                 hamiltonian_representation_index=hamiltonian_representation_index,
+                                 energy_result=enegy_result_noiseless,
+                                 angles=angles)
         qaoa_result.sort_energies_and_bitstrings()
         qaoa_result.energy_result.energy_mean_noisy = exp_value_noisy
         qaoa_result.energy_result.energy_best_noisy = qaoa_result.bitstrings_energies[0]
@@ -344,14 +316,410 @@ class QAOARunnerSampler(QAOARunnerBase, HamiltonianSolutionsSampler):
 
         return qaoa_result
 
-    def _sample_solutions(
-        self, number_of_samples: int, *args, **kwargs
-    ) -> Tuple[List[Tuple[float, Tuple[Tuple[int, ...], int]]], QAOAResult]:
 
-        qaoa_result = self.run_qaoa(
-            number_of_samples=number_of_samples, *args, **kwargs
-        )
+    def _spectrum_for_backend(self,
+                              backend,
+                              hamiltonian_representation_index: int):
+        """The cost Hamiltonian's spectrum as an array of the backend's type: a float64 cupy
+        array for a cupy simulator, a float64 torch tensor for the torch simulator, and the
+        Hamiltonian's own array otherwise.
+
+        The copy is made once per spectrum and kept on this runner, never on the Hamiltonian.
+        A spectrum the Hamiltonian replaces (solved again) is copied again.
+        """
+        spectrum = self._hamiltonian_representations_cost[hamiltonian_representation_index].spectrum
+
+        # Only the direct simulators expose the array module they compute in; the qiskit
+        # backend has no such attribute and keeps the spectrum on the host.
+        if getattr(backend, '_bck', None) is cp:
+            def to_backend():
+                return cp.asarray(spectrum, dtype=cp.float64)
+        elif self._backend_name.lower() in ['pytorch']:
+            import torch
+            def to_backend():
+                return torch.as_tensor(spectrum, dtype=torch.float64, device=backend._bck)
+        else:
+            return spectrum
+
+        cached = self._backend_spectra.get(hamiltonian_representation_index)
+        if cached is None or cached[0] is not spectrum:
+            cached = (spectrum, to_backend())
+            self._backend_spectra[hamiltonian_representation_index] = cached
+        return cached[1]
+
+    def _evaluate_qaoa_infinite_samples(self,
+                                      angles:List[float]|np.ndarray|cp.ndarray,
+                                      qaoa_depth: int,
+                                      hamiltonian_representation_index,
+                                      trial_index:int,
+                                      measurement_noise:Optional[ClassicalMeasurementNoiseSampler]=None,
+                                      return_raw_result:bool=False,
+                                        bias_parameters_WS:Optional[List[float]|float|np.ndarray|cp.ndarray]=None,
+                                      ):
+        gammas_j = angles[:qaoa_depth]
+        betas_j = angles[qaoa_depth:]
+
+        assert measurement_noise is None, "Measurement noise is currently not supported for infinite samples."
+
+        backend_i = self._backends[hamiltonian_representation_index]
+        hamiltonian_i = self._hamiltonian_representations_cost[hamiltonian_representation_index]
+
+        if hamiltonian_i.spectrum is None:
+            hamiltonian_i.solve_hamiltonian(both_directions=False)
+
+        spectrum_i = self._spectrum_for_backend(backend=backend_i,
+                                                hamiltonian_representation_index=hamiltonian_representation_index)
+
+        if self._backend_name.lower() in ['qiskit']:
+            raise NotImplementedError("Infinite samples are currently not supported for qiskit backend.")
+            statevector_ideal = None
+            (_result,df_job_metadata), bitstrings_array = backend_i.run_qaoa(angles_PHASE=gammas_j.reshape(qaoa_depth),
+                                                                 angles_MIXER=betas_j.reshape(qaoa_depth),
+                                                                 number_of_samples=number_of_samples)
+
+
+            if self.results_logger is not None and self.logging_level not in [None, LoggingLevel.NONE]:
+
+                self.results_logger.write_results(dataframe=df_job_metadata,
+                                                  data_type=SNDT.JobMetadata,
+                                                  additional_annotation_dict=None)
+
+        elif self._backend_name.lower() in ['python']:
+            _result = backend_i.get_qaoa_statevector(angles_mixer=betas_j.reshape(qaoa_depth),
+                                                        angles_PS=gammas_j.reshape(qaoa_depth),
+                                                     bias_parameters_WS=bias_parameters_WS)
+            statevector_ideal = _result.reshape(-1, )
+
+
+
+            # The statevector decides where the contraction runs. A caller may hand over a
+            # Hamiltonian whose spectrum is a device array, so the spectrum is converted here
+            # instead of being dispatched on.
+            # Probabilities are formed in float64 from either complex dtype and summed in float64.
+            if isinstance(statevector_ideal, np.ndarray):
+                spectrum_here = em.convert_cupy_numpy_array(array=spectrum_i, output_backend='numpy')
+                probability_distribution = em.cython_abs_squared(vector=statevector_ideal,
+                                                                 output_precision_if_complex=np.float64)
+                mean_energy = em.cython_vdot(vector1=probability_distribution,
+                                             vector2=np.asarray(spectrum_here, dtype=np.float64))
+                if self.renormalize_probabilities:
+                    mean_energy = mean_energy / float(np.sum(probability_distribution))
+            else:
+                spectrum_here = cp.asarray(em.convert_cupy_numpy_array(array=spectrum_i, output_backend='cupy'),
+                                           dtype=cp.float64)
+                statevector_here = cp.ascontiguousarray(statevector_ideal)
+                if self.renormalize_probabilities:
+                    # One reduction gives both sums, so the norm costs no extra pass or launch.
+                    mean_energy, probability_norm = cupy_kernels.probability_weighted_sums(statevector_here,
+                                                                                           spectrum_here)
+                    mean_energy = mean_energy / probability_norm
+                else:
+                    mean_energy = cupy_kernels.expectation_value(statevector_here, spectrum_here)
+
+
+
+        elif self._backend_name.lower() in ['pytorch']:
+            statevector_ideal = backend_i.get_qaoa_statevector(angles_mixer=betas_j.reshape(qaoa_depth),
+                                                        angles_PS=gammas_j.reshape(qaoa_depth))
+            probability_distribution = torch.abs(statevector_ideal)**2
+
+            mean_energy = torch.dot(probability_distribution, spectrum_i)
+
+
+
+
+        else:
+            raise ValueError(f"Unsupported backend: {self._backend_name}; supported backends: qiskit, python")
+
+        exp_value_float = float(mean_energy)
+
+        #print('hejka', type(statevector_ideal))
+        #print(tir)
+        #raise KeyboardInterrupt
+
+        qaoa_result = QAOAResult(statevector=None,
+                                 trial_index=trial_index,
+                                 hamiltonian_representation_index=hamiltonian_representation_index,
+                                 angles=angles,
+                                 energy_result=EnergyResultMain(energy_mean_noiseless=exp_value_float),
+                                 bias_parameters_WS=bias_parameters_WS
+                                 )
+
+        qaoa_result.update_main_energy(noisy=False)
+
+
+        if measurement_noise is None:
+            #if there is no measurement noise, we can log the results without additional annotations
+            table_name_prefix_no_cmns = None
+            additional_annotations_no_cmns = None
+        else:
+            #if there is measurement noise, the noiseless results are "additional" because they are not used in the
+            #main optimization loop
+            table_name_prefix_no_cmns = 'CMNS=False'
+            additional_annotations_no_cmns = None
+
+        self.log_results(qaoa_result=qaoa_result,
+                         table_name_prefix=table_name_prefix_no_cmns,
+                         additional_annotations=additional_annotations_no_cmns)
+
+        if measurement_noise is None:
+            if return_raw_result:
+                return qaoa_result, _result
+            return qaoa_result
+
+        raise NotImplementedError("Measurement noise is currently not supported for infinite samples.")
+        #TODO(FBM): add measurement noise for infinite samples (tensor product structure can be implemented)
+
+        enegy_result_noiseless = qaoa_result.energy_result
+        bitstrings_array_noisy = measurement_noise.add_noise_to_samples(ideal_samples=bitstrings_array)
+        energies_noisy = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array_noisy)
+        # energies_noisy = em.calculate_energies_from_bitstrings_2_local(bitstrings_array=bitstrings_array_noisy,
+        #                                           adjacency_matrix=hamiltonian_i.get_adjacency_matrix(),
+        #                                           computation_backend=hamiltonian_i._default_backend)
+        #
+
+        exp_value_noisy = np.mean(energies_noisy)
+
+        qaoa_result = QAOAResult(statevector=statevector_ideal,
+                                 bitstrings_array=bitstrings_array_noisy,
+                                 bitstrings_energies=energies_noisy,
+                                 trial_index=trial_index,
+                                 hamiltonian_representation_index=hamiltonian_representation_index,
+                                 energy_result=enegy_result_noiseless,
+                                 angles=angles)
+        qaoa_result.sort_energies_and_bitstrings()
+        qaoa_result.energy_result.energy_mean_noisy = exp_value_noisy
+        qaoa_result.energy_result.energy_best_noisy = qaoa_result.bitstrings_energies[0]
+        qaoa_result.energy_result.bitstring_best_noisy = qaoa_result.bitstrings_array[0]
+        qaoa_result.update_main_energy(noisy=True)
+
+        # TODO(FBM): consider also adding logging of noisy vs noiseless results?
+        self.log_results(qaoa_result=qaoa_result)
+
+        if return_raw_result:
+            return qaoa_result, _result
+
+        return qaoa_result
+
+    def run_qaoa(self,
+                 *args,
+                 qaoa_depth: int,
+                 number_of_samples: int,
+                 measurement_noise: ClassicalMeasurementNoiseSampler = None,
+                 numpy_rng_sampling=None,
+                 input_format: Optional[FIFormat] = None,
+                 return_raw_result=False,
+                 backend_name=None,
+                 bias_parameters_WS:Optional[float|List[float]|np.ndarray]=None) -> Union[QAOAResult, Tuple[QAOAResult, Any]]:
+
+
+        if self._backends is None:
+            _initialize_backend_kwargs = self._initialize_backend_kwargs.copy()
+
+            if backend_name is None:
+                backend_name = _initialize_backend_kwargs.get('backend_name', None)
+                if backend_name is None:
+                    backend_name = 'python'
+
+            if 'backend_name' in _initialize_backend_kwargs:
+                del _initialize_backend_kwargs['backend_name']
+
+            if 'qaoa_depth' in _initialize_backend_kwargs:
+                del _initialize_backend_kwargs['qaoa_depth']
+
+            if backend_name == 'qiskit':
+                self.initialize_backend_qiskit(qaoa_depth=qaoa_depth,
+                                               **_initialize_backend_kwargs)
+            elif backend_name == 'python':
+                self.initialize_backend_python(**_initialize_backend_kwargs)
+            elif backend_name == 'pytorch':
+                self.initialize_backend_pytorch(**_initialize_backend_kwargs)
+            else:
+                raise ValueError(f"Unsupported backend: {backend_name}; supported backends: qiskit, python, pytorch")
+        else:
+            if backend_name is not None:
+                assert backend_name == self._backend_name, (
+                    'Backend name is different than the one used during initialization.'
+                    'Please use a new instance of the class if you wish to change backend_computation.')
+
+
+        angles, hamiltonian_representation_index, trial_index = self._input_handler(args=args,
+                                                                                    input_format=input_format,
+                                                                                    qaoa_depth=qaoa_depth)
+
+
+        _infinite_samples = number_of_samples in [np.inf, None]
+
+        if _infinite_samples:
+            assert self.number_of_qubits<=25, "Infinite samples are currently not supported for qubits > 25"
+
+            assert measurement_noise is None, "Measurement noise is currently not supported for infinite samples."
+
+            return self._evaluate_qaoa_infinite_samples(angles=angles,
+                                                        qaoa_depth=qaoa_depth,
+                                                        hamiltonian_representation_index=hamiltonian_representation_index,
+                                                        trial_index=trial_index,
+                                                        measurement_noise=measurement_noise,
+                                                        return_raw_result=return_raw_result,
+                                                        bias_parameters_WS=bias_parameters_WS)
+
+
+        else:
+            if numpy_rng_sampling is None:
+                numpy_rng_sampling = self._numpy_rng_sampling
+
+            return self._evaluate_qaoa_finite_samples(angles=angles,
+                                                      qaoa_depth=qaoa_depth,
+                                                      number_of_samples=number_of_samples,
+                                                      hamiltonian_representation_index=hamiltonian_representation_index,
+                                                      trial_index=trial_index,
+                                                      numpy_rng_sampling=numpy_rng_sampling,
+                                                      measurement_noise=measurement_noise,
+                                                      return_raw_result=return_raw_result,
+                                                      bias_parameters_WS=bias_parameters_WS)
+
+
+    def run_qaoa_qiskit_batch(self,
+                                  angles_PHASE_batch: np.ndarray,
+                                  angles_MIXER_batch: np.ndarray,
+                                  number_of_samples: int,
+                                  hamiltonian_representation_index:Optional[int]=None,
+                                 measurement_noise: Optional[ClassicalMeasurementNoiseSampler] = None,
+                                 return_raw_result: bool = False,
+                                job_id_for_download:Optional[str]=None,
+                                bias_parameters_WS_batch:Optional[np.ndarray]=None,
+                                      ):
+
+        assert self._backend_name.lower() in ['qiskit'], "Qiskit's batch mode is only available for qiskit backend..."
+
+        if number_of_samples in [np.inf, None]:
+            raise NotImplementedError("Batch mode sampler does not support infinite samples")
+
+
+        if hamiltonian_representation_index is None:
+            assert len(self._backends)==1, "If there's multiple backends, you need to provide the hamiltonian_representation_index"
+            hamiltonian_representation_index = 0
+
+        backend_i = self._backends[hamiltonian_representation_index]
+        hamiltonian_i = self._hamiltonian_representations_cost[hamiltonian_representation_index]
+
+
+
+        (_result, df_job_metadata), bitstrings_arrays_list = backend_i.run_qaoa_batch(
+                                                                    angles_PHASE_batch=angles_PHASE_batch,
+                                                                    angles_MIXER_batch=angles_MIXER_batch,
+                                                                    number_of_samples=number_of_samples,
+                                                                    job_id_for_download=job_id_for_download,
+                                                                    bias_parameters_ws=bias_parameters_WS_batch)
+
+
+
+        if self.results_logger is not None and self.logging_level not in [None, LoggingLevel.NONE]:
+            self.results_logger.write_results(dataframe=df_job_metadata,
+                                              data_type=SNDT.JobMetadata,
+                                              additional_annotation_dict=None)
+
+        all_qaoa_results = []
+
+        for trial_index, (bitstrings_array) in enumerate(bitstrings_arrays_list):
+
+            angles_PHASE = angles_PHASE_batch[trial_index]
+            angles_MIXER = angles_MIXER_batch[trial_index]
+
+            bias_parameter = None
+            if bias_parameters_WS_batch is not None:
+                bias_parameter = bias_parameters_WS_batch[trial_index]
+
+
+            angles = np.concatenate((angles_PHASE, angles_MIXER))
+
+            energies_array = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array)
+
+            exp_value_float = np.mean(energies_array)
+
+
+            # from quapopt import ancillary_functions as anf
+            # permutation_operator = list(reversed(list(range(hamiltonian_i.number_of_qubits))))
+            # bitstring_array_reversed = anf.apply_permutation_to_array(permutation=permutation_operator,
+            #                                                           array=bitstrings_array)
+            #
+            # energies_array_reversed = hamiltonian_i.evaluate_energy(bitstrings_array=bitstring_array_reversed)
+            # exp_value_float_reversed = np.mean(energies_array_reversed)
+
+
+            qaoa_result = QAOAResult(bitstrings_array=bitstrings_array,
+                                     bitstrings_energies=energies_array,
+                                     trial_index=trial_index,
+                                     hamiltonian_representation_index=hamiltonian_representation_index,
+                                     angles=angles,
+                                     bias_parameters_WS=bias_parameter)
+            qaoa_result.sort_energies_and_bitstrings()
+            qaoa_result.energy_result = EnergyResultMain(energy_mean_noiseless=exp_value_float,
+                                                         energy_best_noiseless=qaoa_result.bitstrings_energies[0],
+                                                         bitstring_best_noiseless=qaoa_result.bitstrings_array[0],
+                                                         )
+            qaoa_result.update_main_energy(noisy=False)
+
+
+            if measurement_noise is None:
+                # if there is no measurement noise, we can log the results without additional annotations
+                table_name_prefix_no_cmns = None
+                additional_annotations_no_cmns = None
+            else:
+                # if there is measurement noise, the noiseless results are "additional" because they are not used in the
+                # main optimization loop
+                table_name_prefix_no_cmns = 'CMNS=False'
+                additional_annotations_no_cmns = None
+
+            self.log_results(qaoa_result=qaoa_result,
+                             table_name_prefix=table_name_prefix_no_cmns,
+                             additional_annotations=additional_annotations_no_cmns)
+
+
+
+
+
+
+            if measurement_noise is None:
+                all_qaoa_results.append(qaoa_result)
+                continue
+
+            enegy_result_noiseless = qaoa_result.energy_result
+            bitstrings_array_noisy = measurement_noise.add_noise_to_samples(ideal_samples=bitstrings_array)
+            energies_noisy = hamiltonian_i.evaluate_energy(bitstrings_array=bitstrings_array_noisy)
+            exp_value_noisy = np.mean(energies_noisy)
+            qaoa_result = QAOAResult(bitstrings_array=bitstrings_array_noisy,
+                                     bitstrings_energies=energies_noisy,
+                                     trial_index=trial_index,
+                                     hamiltonian_representation_index=hamiltonian_representation_index,
+                                     energy_result=enegy_result_noiseless,
+                                     angles=angles)
+            qaoa_result.sort_energies_and_bitstrings()
+            qaoa_result.energy_result.energy_mean_noisy = exp_value_noisy
+            qaoa_result.energy_result.energy_best_noisy = qaoa_result.bitstrings_energies[0]
+            qaoa_result.energy_result.bitstring_best_noisy = qaoa_result.bitstrings_array[0]
+            qaoa_result.update_main_energy(noisy=True)
+
+            self.log_results(qaoa_result=qaoa_result)
+
+            all_qaoa_results.append(qaoa_result)
+
+        if return_raw_result:
+            return all_qaoa_results, _result
+
+        return all_qaoa_results
+
+    def _sample_solutions(self,
+                          number_of_samples: int,
+                          *args,
+                          **kwargs
+                          )->Tuple[List[Tuple[float, Tuple[Tuple[int, ...], int]]], QAOAResult]:
+
+        qaoa_result = self.run_qaoa(number_of_samples=number_of_samples,
+                                    *args,
+                                    **kwargs)
 
         best_n_results = self.get_best_results()
 
         return best_n_results, qaoa_result
+

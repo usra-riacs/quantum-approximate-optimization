@@ -1,11 +1,10 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
 import numpy as np
-
-cimport cython
 cimport numpy as np
+cimport cython
+
 
 ctypedef np.complex128_t COMPLEX128_t
 ctypedef np.float32_t FLOAT32_t
@@ -127,12 +126,6 @@ def cython_vdot(vector1, vector2):
     else:
         raise ValueError("Unsupported dtype for vectors: {} and {}".format(vector1.dtype, vector2.dtype))
 
-
-
-
-
-#let's replicate the above function in cython
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_all_two_1s_bitstrings_cython(int noq,
@@ -156,6 +149,31 @@ def get_all_two_1s_bitstrings_cython(int noq,
             counter += 1
 
     return zeros
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_all_two_flips_bitstrings_cython_pm(int noq,
+                                     include_one_1s_bitstrings=False):
+    cdef int number_of_pairs = noq*(noq-1)//2
+
+    if include_one_1s_bitstrings:
+        number_of_pairs += noq
+
+    cdef np.ndarray[np.int32_t, ndim=2] ones = np.ones((number_of_pairs, noq), dtype=np.int32)
+    cdef int counter = 0
+    cdef int i, j
+    for i in range(noq):
+        for j in range(i+1,noq):
+            ones[counter, j] = -1
+            ones[counter, i] = -1
+            counter += 1
+    if include_one_1s_bitstrings:
+        for i in range(noq):
+            ones[counter, i] = -1
+            counter += 1
+    return ones
 
 
 

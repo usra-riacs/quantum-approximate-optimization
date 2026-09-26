@@ -1,51 +1,39 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
 import copy
 import time
-from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
-# Lazy monkey-patching of cupy
-try:
-    import cupy as cp
-except (ImportError, ModuleNotFoundError):
-    import numpy as cp
-
-import numpy as np
+from typing import List, Optional, Dict, Any, Callable, Tuple
 import pandas as pd
+import numpy as np
 from tqdm.notebook import tqdm
 
 from quapopt import ancillary_functions as anf
-from quapopt.additional_packages.ancillary_functions_usra import efficient_math as em
-from quapopt.data_analysis.data_handling import STANDARD_NAMES_VARIABLES as SNV
-from quapopt.data_analysis.data_handling import LoggingLevel
-from quapopt.hamiltonians.representation.ClassicalHamiltonian import (
-    ClassicalHamiltonian,
-)
-from quapopt.meta_algorithms.NDAR import (
-    AttractorModel,
-    AttractorStateType,
-    ConvergenceCriterion,
-    ConvergenceCriterionNames,
-    NDARIterationResult,
-)
-from quapopt.optimization import EnergyResultMain
-from quapopt.optimization.QAOA import QAOAResult
+from quapopt.data_analysis.data_handling import ResultsLogger
+from quapopt.hamiltonians.representation.ClassicalHamiltonian import ClassicalHamiltonian
+from quapopt.meta_algorithms.NDAR import (AttractorStateType,
+                                          AttractorModel,
+                                          ConvergenceCriterionNames,
+                                          ConvergenceCriterion,
+                                          NDARIterationResult,
+                                          BestResultSignature,
+                                          BitstringTypeSignature)
+
+# BitstringTypeSignature = Tuple[int, ...] | np.ndarray | List[int]
+# BestResultSignature = Tuple[Tuple[float, BitstringTypeSignature, int], Any]
+LocalSamplerSignature = Callable[[List[ClassicalHamiltonian], Any], BestResultSignature]
+LocalSamplerKwargsUpdaterSignature = Optional[Callable[[int, BestResultSignature, Optional[Any]], Dict[str, Any] ]]
+LoggingCallableSignature = Callable[[NDARIterationResult, ResultsLogger], None]
+from quapopt.meta_algorithms.NDAR import NDARIterationResult, handle_bitstring_format_inefficient
 
 
-# define class for NDAR implementation
-class NDARRunner(ABC):
-    def __init__(
-        self,
-        input_hamiltonian_representations: List[ClassicalHamiltonian],
-        # sampler_class: type(HamiltonianSolutionsSampler),
-        attractor_model: Optional[AttractorModel] = None,
-        convergence_criterion: Optional[ConvergenceCriterion] = None,
-        logging_level: Optional[LoggingLevel] = None,
-        logger_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> None:
+class NDARRunner:
+    def __init__(self,
+                 input_hamiltonian_representation: ClassicalHamiltonian,
+                 attractor_model: Optional[AttractorModel] = None,
+                 convergence_criterion: Optional[ConvergenceCriterion] = None,
+                 numpy_rng_boltzmann: Optional[np.random.Generator] = None
+                 ) -> None:
         """
         This class implements extended version of Noise-Directed Adaptive Remapping.
         A version of this was implemented in paper [1].
@@ -62,43 +50,32 @@ class NDARRunner(ABC):
             attractor_model:
         """
 
-        if isinstance(input_hamiltonian_representations, ClassicalHamiltonian):
-            input_hamiltonian_representations = [input_hamiltonian_representations]
 
-        self.number_of_representations = len(input_hamiltonian_representations)
 
-        self._number_of_qubits = input_hamiltonian_representations[0].number_of_qubits
-        zero_tuple = tuple([0] * self._number_of_qubits)
-        self._input_hamiltonians = input_hamiltonian_representations
-        self._transformations_history = {
-            0: (ham, zero_tuple) for ham in self._input_hamiltonians
-        }
-        self._ndar_iteration = 0
+        self._number_of_qubits = input_hamiltonian_representation.number_of_qubits
+        self._input_hamiltonian = input_hamiltonian_representation
 
         if attractor_model is None:
-            attractor_model = AttractorModel(
-                attractor_state_type=AttractorStateType.zero,
-                number_of_qubits=self._number_of_qubits,
-            )
+            attractor_model = AttractorModel(attractor_state_type=AttractorStateType.zero,
+                                             number_of_qubits=self._number_of_qubits)
 
         self._attractor_model = attractor_model
         if convergence_criterion is None:
             convergence_criterion = ConvergenceCriterion(
-                convergence_criterion_name=ConvergenceCriterionNames.best_energy_change,
-            )
+                convergence_criterion_name=ConvergenceCriterionNames.MaxUnsuccessfulTrials,
+                convergence_value=3)
         self._convergence_criterion = convergence_criterion
+        self._optimization_history:Dict[int,Tuple[float, BitstringTypeSignature, int]] = {}
 
-        self._optimization_history = {}
-
+        self._ndar_history = []
+        self._ndar_iteration = 0
         self._best_energy_so_far = np.inf
 
-        if logging_level is None:
-            logging_level = LoggingLevel.NONE
-        if logger_kwargs is None:
-            logger_kwargs = {}
+        if numpy_rng_boltzmann is None:
+            numpy_rng_boltzmann = np.random.default_rng(0)
+        self._numpy_rng_boltzmann = numpy_rng_boltzmann
 
-        self._logging_level = logging_level
-        self._logger_kwargs = logger_kwargs
+        self._pbar = None
 
     @property
     def number_of_qubits(self) -> int:
@@ -109,19 +86,12 @@ class NDARRunner(ABC):
         return self._optimization_history
 
     @property
-    def logging_level(self) -> LoggingLevel:
-        return self._logging_level
-
-    def set_logging_level(self, logging_level: LoggingLevel):
-        self._logging_level = logging_level
+    def input_hamiltonian(self) -> ClassicalHamiltonian:
+        return self._input_hamiltonian
 
     @property
-    def input_hamiltonians(self) -> List[ClassicalHamiltonian]:
-        return self._input_hamiltonians
-
-    @property
-    def transformations_history(self) -> dict:
-        return self._transformations_history
+    def ndar_history(self) -> List[NDARIterationResult]:
+        return self._ndar_history
 
     @property
     def ndar_iteration(self) -> int:
@@ -134,12 +104,16 @@ class NDARRunner(ABC):
     def best_energy_so_far(self) -> float:
         return self._best_energy_so_far
 
-    def update_best_energy_so_far(self, candidate_energy: float):
+    def update_best_energy_so_far(self,
+                                  candidate_energy: float):
         if self._best_energy_so_far is None:
             self._best_energy_so_far = candidate_energy
+            return True
         else:
             if candidate_energy < self.best_energy_so_far:
                 self._best_energy_so_far = candidate_energy
+                return True
+            return False
 
     @property
     def attractor_model(self) -> AttractorModel:
@@ -161,6 +135,8 @@ class NDARRunner(ABC):
         current_iteration += -1
         previous_iteration = current_iteration - 1
 
+        # print('hejka',current_iteration, previous_iteration)
+
         previous_optimization_results = self._optimization_history[previous_iteration]
         current_optimization_results = self._optimization_history[current_iteration]
 
@@ -168,21 +144,15 @@ class NDARRunner(ABC):
         current_value = current_optimization_results[0]
 
         iteration_index = None
-        if (
-            self.convergence_criterion.ConvergenceCriterion
-            == ConvergenceCriterionNames.MaxIterations
-        ):
+        if self.convergence_criterion.ConvergenceCriterion == ConvergenceCriterionNames.MaxIterations:
             iteration_index = current_iteration
 
-        elif (
-            self.convergence_criterion.ConvergenceCriterion
-            == ConvergenceCriterionNames.MaxUnsuccessfulTrials
-        ):
+        elif self.convergence_criterion.ConvergenceCriterion == ConvergenceCriterionNames.MaxUnsuccessfulTrials:
             # we need to count how many times we have failed since last improvement
             iteration_index = 0
 
             best_so_far = np.inf
-            for i in range(current_iteration):
+            for i in range(len(self._optimization_history)):
                 E_i = self._optimization_history[i][0]
                 if E_i >= best_so_far:
                     iteration_index += 1
@@ -190,571 +160,401 @@ class NDARRunner(ABC):
                     best_so_far = E_i
                     iteration_index = 0
 
-                if iteration_index > self.convergence_criterion.ConvergenceValue:
+                if iteration_index >= self.convergence_criterion.ConvergenceValue:
                     break
 
-        elif (
-            self.convergence_criterion.ConvergenceCriterion
-            == ConvergenceCriterionNames.BestEnergyChange
-        ):
+        elif self.convergence_criterion.ConvergenceCriterion == ConvergenceCriterionNames.BestEnergyChange:
             pass
 
         else:
             raise NotImplementedError(
-                f"Convergence criterion: {self.convergence_criterion.ConvergenceCriterion} is not implemented"
-            )
+                f"Convergence criterion: {self.convergence_criterion.ConvergenceCriterion} is not implemented")
 
-        converged = self.convergence_criterion.check_convergence(
-            previous_score=previous_value,
-            current_score=current_value,
-            iteration_index=iteration_index,
-        )
+        converged = self.convergence_criterion.check_convergence(previous_score=previous_value,
+                                                                 current_score=current_value,
+                                                                 iteration_index=iteration_index)
 
         # if converged:
+        #     print(f"Converged at iteration {current_iteration}; unsuccessful trials: {iteration_index}")
 
         return converged
 
-    # @abstractmethod
-    # def _sample_new_solutions(self,
-    #                           hamiltonian_representations_cost: List[ClassicalHamiltonian],
-    #                           *args,
-    #                           **kwargs) -> List[Tuple[float, Tuple[np.ndarray, int, Any]]]:
+    def _metropolis_check(self,
+                          energy_current: float,
+                          temperature: Optional[float],
+                          energy_previous: Optional[float]=None,
 
-    def sample_new_solutions(
-        self,
-        hamiltonian_representations_cost: List[ClassicalHamiltonian],
-        new_seed: Optional[int] = None,
-        *args,
-        **kwargs,
-    ) -> List[Tuple[float, Tuple[np.ndarray, int, Any]]]:
-        raise NotImplementedError("This method must be implemented in a subclass.")
-
-        # return self._sample_new_solutions(hamiltonian_representations_cost=hamiltonian_representations_cost,
-        #                                   *args,
-        #                                   **kwargs)
-
-    @staticmethod
-    def _metropolis_check(
-        energy_current: float,
-        energy_previous: float,
-        temperature: float,
-        rng: Union[cp.random.Generator, np.random.Generator] = None,
-    ):
+                          ):
 
         if temperature == 0.0:
             return True
 
-        if energy_current <= energy_previous:
+        if energy_previous is None:
+            energy_previous = self._best_energy_so_far
+        if energy_previous is None:
             return True
 
+        if energy_current <= energy_previous:
+            return True
+        elif temperature is None:
+            return False
+
+
         dE = energy_current - energy_previous
+        return np.log(self._numpy_rng_boltzmann.random(size=1)) >= dE / temperature
 
-        return np.log(rng.uniform(0, 1)) >= dE / temperature
+    def _handle_single_sampler(self,
+                               hamiltonian_representations: List[ClassicalHamiltonian],
+                               best_result_previous: BestResultSignature,
+                               local_sampler_callable: LocalSamplerSignature,
+                               local_sampler_kwargs_updater: LocalSamplerKwargsUpdaterSignature,
+                               logging_callable: LoggingCallableSignature,
+                               temperature_NDAR: Optional[float],
+                               local_sampler_name: Optional[str] = None,
+                               additional_data = None
+                               #results_logger:Optional[ResultsLogger]=None
+                               ):
 
-    def _run_NDAR(
-        self,
-        sampler_kwargs: dict,
-        optimize_over_n_gauges=1,
-        numpy_rng_boltzmann=None,
-        step_seed_generator: Optional[Callable[[int], int]] = None,
-        show_progress_bar_ndar=True,
-        temperature_NDAR=0.0,
-        hamming_distance_local_search=None,
-        store_full_data_additional: Optional[bool] = False,
-        df_annotation_add: Optional[pd.DataFrame] = None,
-        verbosity=1,
-        initial_bitstring=None,
-        add_mcndar=False,
-    ):
+        #TODO(FBM): I think this inference is fine. We pass more than 1 representation if we wish to optimize over more than 1 gauge.
+        optimize_over_r_gauges = len(hamiltonian_representations)
+
+        t0 = time.perf_counter()
+        local_sampler_kwargs_i = local_sampler_kwargs_updater(self.ndar_iteration,
+                                                              best_result_previous,
+                                                              additional_data)
+
+        best_results_i = local_sampler_callable(hamiltonian_representations,
+                                                **local_sampler_kwargs_i)
+        t1 = time.perf_counter()
+
+        results_logger = local_sampler_kwargs_i.get('results_logger', None)
+
+
+        # dt_optimization += t1 - t0
+
+        if len(best_results_i) < optimize_over_r_gauges:
+            diff = optimize_over_r_gauges - len(best_results_i)
+            # Let's make copy and attach
+            best_results_i = list(best_results_i)
+            for i in range(diff):
+                best_results_i.append(copy.deepcopy(best_results_i[0]))
+            print("WARNING:",
+                  'Not enough results returned by the optimizer. Filling with copies of the best result.')
+
+        best_results_i = sorted(best_results_i, key=lambda x: x[0][0])
+        best_energy_current_iteration, best_solution_current_iteration, _ = best_results_i[0][0]
+        hamiltonian_representations_to_optimize = []
+
+        last_best_energy = self._best_energy_so_far
+
+        local_results_i = []
+        for best_res_i_j in best_results_i:
+            (energy_best_i_j, bitstring_best_i_j, representation_index_best_i_j), additional_data_i_j = best_res_i_j
+            ham_rep_i_j: ClassicalHamiltonian = hamiltonian_representations[representation_index_best_i_j].copy()
+
+            if self._metropolis_check(energy_current=energy_best_i_j,
+                                      energy_previous=last_best_energy,
+                                      temperature=temperature_NDAR,
+                                      ):
+                bitflip_transformation_i = self.attractor_model.return_bitflip_transformation(
+                    bitstring=bitstring_best_i_j)
+                hamiltonian_transformed_i = ham_rep_i_j.apply_bitflip(bitflip_transformation_i)
+
+            else:
+                hamiltonian_transformed_i = ham_rep_i_j
+                bitflip_transformation_i = tuple([0] * ham_rep_i_j.number_of_qubits)
+
+            ndar_results_i_j = NDARIterationResult(iteration_index=self.ndar_iteration,
+                                                   best_result=best_res_i_j,
+                                                   bitflip_transform=bitflip_transformation_i,
+                                                   attractor_model=self.attractor_model,
+                                                   local_sampler_specific_data=additional_data_i_j,
+                                                   convergence_criterion=self.convergence_criterion,
+                                                   local_sampler_name=local_sampler_name
+                                                   )
+
+            if logging_callable is not None:
+                logging_callable(ndar_results_i_j,
+                                 results_logger)
+
+            hamiltonian_representations_to_optimize.append(hamiltonian_transformed_i)
+            local_results_i.append(ndar_results_i_j)
+
+        return local_results_i, hamiltonian_representations_to_optimize
+
+    def run_NDAR(self,
+
+                 # local_sampler_callables: List[LocalSamplerSignature]|Dict[int,LocalSamplerSignature]|LocalSamplerSignature,
+                 # local_sampler_kwargs_updaters: List[LocalSamplerKwargsUpdaterSignature]|Dict[int,LocalSamplerKwargsUpdaterSignature]|LocalSamplerKwargsUpdaterSignature = None,
+                 # logging_callables: List[LoggingCallableSignature]|Dict[int,LoggingCallableSignature]|LoggingCallableSignature = None,
+                 # local_sampler_names:Optional[List[str]]|Dict[int,str]|str = None,
+                 local_sampler_functions = List[Tuple[LocalSamplerSignature, LocalSamplerKwargsUpdaterSignature, LoggingCallableSignature, str]],
+                 optimize_over_r_gauges:int=1,
+                 show_progress_bar_ndar=True,
+                 temperature_NDAR:Optional[float]=None,
+                 verbosity=1,
+                 initial_bitstrings:Optional[np.ndarray]=None,
+                 max_runtime:Optional[float]=None,
+                 break_after_finding_ground_state:bool=False
+
+
+
+                 ):
+        """
+
+        :param local_sampler_functions: LIST of 4-tuples with relevant data for each local sampler.
+        The samplers are called sequentially in the order they are provided. This happens at each NDAR iteration.
+
+        Each tuple has a form (sampler_callable, kwargs_updater_callable, logging_callable, local_sampler_name)
+
+        1. sampler_callable: callable with 1 + any number of arguments
+        first argument must be:
+            - List of ClassicalHamiltonian representations to optimize over
+        the rest of arguments are handled via local_sampler_kwargs_updater
+        it must return:
+            - List of tuples of the form: (energy_best, bitstring_best, representation_index_best), additional_data_i_j
+
+        #Note -- even if the internal optimizer optimizes a different cost function than energy_best, this is what we expect to be returned by the local_sampler_callable
+        The list can be length one. Multiple entries mean the best "r" solutions are returned (should match "optimize_over_r_gauges" below)
+
+        2.  kwargs_updater_callable: callable with two arguments
+            - first argument must be the NDAR iteration index. This is for possible updating of seeds or some other local_sampler_kwargs
+            - second argument must be the best results from previous iteration. This is for updating local sampler based on best results from previous iteration.
+        it must return:
+            - dictionary with local sampler kwargs to be passed to local_sampler_callable as local_sampler_callable(**kwargs)
+
+        3. logging_callable: callable with 1 argument that must be NDARIterationResult
+
+        4. local_sampler_name: string that will be used to label the local sampler in the NDAR history.
+
+
+
+        :param optimize_over_r_gauges:
+        Whether to optimize over more than single representation of the Hamiltonian each time.
+        It should be matched with the number of results returned by the local_sampler_callable.
+        If it is not, we are filling the list with copies of the best result.
+
+        :param numpy_rng_boltzmann:
+        This is rng for metropolis checks
+        :param temperature_NDAR:
+        This is temperature for metropolis checks. If it is 0.0 (default), all proposals are accepted.
+        :param initial_solution:
+        Initial solutions to apply to the input Hamiltonian representations before starting NDAR.
+
+        :param show_progress_bar_ndar:
+        :param verbosity:
+
+        :return:
+        """
 
         self.clean_optimization_history()
 
         t0_total = time.perf_counter()
-        if numpy_rng_boltzmann is None:
-            numpy_rng_boltzmann = np.random.default_rng()
-        if step_seed_generator is None:
-            step_seed_generator = lambda integer: None
 
-        hamiltonian_representations_to_optimize = self.input_hamiltonians
 
-        if initial_bitstring is not None:
-            for i, hamiltonian_representation_i in enumerate(
-                hamiltonian_representations_to_optimize
-            ):
-                hamiltonian_representations_to_optimize[i] = (
-                    hamiltonian_representation_i.apply_bitflip(initial_bitstring)
-                )
 
-        if sampler_kwargs is None:
-            sampler_kwargs = {}
 
-        sampler_kwargs = sampler_kwargs.copy()
 
-        if optimize_over_n_gauges > 1:
-            # TODO(FBM): implement this
-            raise NotImplementedError(
-                "NDAR does not support optimize_over_n_gauges > 1 yet. "
-            )
+        hamiltonian_representations_to_optimize = [self.input_hamiltonian.copy() for _ in range(optimize_over_r_gauges)]
 
-        if "store_n_best_results" in sampler_kwargs:
-            if optimize_over_n_gauges > sampler_kwargs["store_n_best_results"]:
-                sampler_kwargs["store_n_best_results"] = optimize_over_n_gauges
-                print(
-                    f"Overwriting store_n_best_results to {optimize_over_n_gauges} because"
-                    f" optimize_over_n_gauges is set to {optimize_over_n_gauges}"
-                )
+
+        if initial_bitstrings is None and optimize_over_r_gauges>1:
+            numpy_rng = self._numpy_rng_boltzmann
+            random_gauges = numpy_rng.binomial(n=1, p=0.5, size=(optimize_over_r_gauges - 1, self.number_of_qubits))
+            initial_bitstrings = np.array([0] * self.number_of_qubits).reshape(1, -1)
+            initial_bitstrings = np.concatenate([initial_bitstrings, random_gauges],
+                                                axis=0)
+
+        if initial_bitstrings is not None:
+            if isinstance(initial_bitstrings, (list,tuple)):
+                initial_bitstrings = np.array(initial_bitstrings)
+
+            if isinstance(initial_bitstrings, np.ndarray):
+                if len(initial_bitstrings.shape)==1:
+                    initial_bitstrings = initial_bitstrings.reshape(1,-1)
+                    initial_bitstrings = np.repeat(initial_bitstrings,
+                                                   optimize_over_r_gauges,
+                                                   axis=0)
+                else:
+                    assert initial_bitstrings.shape[0]==optimize_over_r_gauges, ("initial_bitstrings must have shape "
+                                                                                 "(N, optimize_over_r_gauges)"
+                                                                                 " if it is not a 1D array."
+                                                                                 f"The detected shape is: {initial_bitstrings.shape}"
+                                                                                 )
+
+            best_results_curr = []
+            for i, hamiltonian_representation_i in enumerate(hamiltonian_representations_to_optimize):
+                hamiltonian_representations_to_optimize[i] = hamiltonian_representation_i.copy().apply_bitflip(initial_bitstrings[i].tolist())
+                en_i = hamiltonian_representations_to_optimize[i].compute_zero_energy()
+
+                best_res_i_init:Tuple[Tuple[float, BitstringTypeSignature, int], Optional[Any]] = ((en_i, initial_bitstrings[i], i), None)
+
+                # ndar_results_i_init = NDARIterationResult(iteration_index=self.ndar_iteration,
+                #                                        best_result=best_res_i_init,
+                #                                        bitflip_transform=initial_bitstrings[i],
+                #                                        attractor_model=self.attractor_model,
+                #                                        local_sampler_specific_data=None,
+                #                                        convergence_criterion=self.convergence_criterion,
+                #                                        local_sampler_name="InitialBitstrings"
+                #                                        )
+
+
+                self.update_best_energy_so_far(candidate_energy=en_i)
+
+                best_results_curr.append(best_res_i_init)
+
+
+
         else:
-            sampler_kwargs["store_n_best_results"] = optimize_over_n_gauges
+            best_results_curr: List[BestResultSignature] = [((np.inf, tuple([0] * self.number_of_qubits), 0),
+                                                             None)] * optimize_over_r_gauges
 
         if show_progress_bar_ndar:
-            if (
-                self.convergence_criterion.ConvergenceCriterion
-                == ConvergenceCriterionNames.MaxIterations
-            ):
+            if self.convergence_criterion.ConvergenceCriterion == ConvergenceCriterionNames.MaxIterations:
                 max_iterations = self.convergence_criterion.ConvergenceValue
             else:
-                max_iterations = 10**3
-
-            pbar = tqdm(total=max_iterations, colour="blue", position=0)
+                max_iterations = 10 ** 3
+            self._pbar = tqdm(total=max_iterations, colour='blue', position=0)
 
         ground_state_energy = hamiltonian_representations_to_optimize[0].lowest_energy
-        highest_energy = hamiltonian_representations_to_optimize[0].highest_energy
 
-        if highest_energy is None:
-            highest_energy = 0
-        delta = highest_energy - ground_state_energy
 
-        dt_optimization = 0
+        best_energy_curr, best_solution_curr, best_rep_index_curr = best_results_curr[0][0]
 
-        if hamming_distance_local_search == 0:
-            hamming_distance_local_search = None
-
-        if hamming_distance_local_search is not None:
-            from quapopt import AVAILABLE_SIMULATORS
-
-            if "cupy" in AVAILABLE_SIMULATORS:
-                bck = cp
-            else:
-                bck = np
-
-            if hamming_distance_local_search == 1:
-                bitstrings_neighbors = bck.eye(self.number_of_qubits, dtype=bck.int8)
-            elif hamming_distance_local_search == 2:
-                bitstrings_neighbors = em.get_all_two_1s_bitstrings_cython(
-                    self.number_of_qubits, True
-                )
-            else:
-                raise ValueError(
-                    "Only hamming_distance_local_search in [1,2] is implemented."
-                )
-
-            bitstrings_neighbors = bck.asarray(bitstrings_neighbors)
-
-        convergence_description = self.convergence_criterion.get_description_string()
-
-        results_all_add = []
-        while not self.check_convergence():
-            # TODO FBM: remember about indices for qiskit
-            t0 = time.perf_counter()
-            hamiltonian_representations_to_optimize_raw = [
-                x.copy() for x in hamiltonian_representations_to_optimize
-            ]
-
-            new_seed_i = step_seed_generator(self.ndar_iteration)
-            best_results_i = self.sample_new_solutions(
-                hamiltonian_representations_cost=hamiltonian_representations_to_optimize_raw,
-                new_seed=new_seed_i,
-                **sampler_kwargs,
-            )
-
-            dt_optimization += time.perf_counter() - t0
-
-            if len(best_results_i) < optimize_over_n_gauges:
-                diff = optimize_over_n_gauges - len(best_results_i)
-
-                # Let's make copy and attach
-                best_results_i = best_results_i.copy()
-                for i in range(diff):
-                    best_results_i.append(best_results_i[0])
-
-                print(
-                    "WARNING:",
-                    "Not enough results returned by the optimizer. Filling with copies of the best result.",
-                )
-
-            # TODO FBM: maybe make this handled outside this function
-            if self.ndar_iteration == 0:
-                last_best_energy = np.inf
-            else:
-                last_best_energy = self._optimization_history[self._ndar_iteration - 1][
-                    0
-                ]
-
-            best_energy_current_iteration = best_results_i[0][0]
-            best_solution_current_iteration = best_results_i[0][1][0]
-
-            hamiltonian_representations_to_optimize = []
-            for score_i, res_i in best_results_i:
-                best_bitstring_i: Union[Tuple[int, ...], np.ndarray] = res_i[0]
-                best_bitstring_i = tuple(best_bitstring_i)
-
-                hamiltonian_representation_index_i: int = res_i[1]
-
-                # TODO(FBM): this is used only for logging. Should generalize to something like "OptimizationResult"
-                best_qaoa_i: QAOAResult = res_i[2]
-                # if not isinstance(best_qaoa_i, QAOAResult):
-
-                hamiltonian_representation_here: ClassicalHamiltonian = (
-                    hamiltonian_representations_to_optimize_raw[
-                        hamiltonian_representation_index_i
-                    ].copy()
-                )
-
-                if self._metropolis_check(
-                    energy_current=score_i,
-                    energy_previous=last_best_energy,
-                    temperature=temperature_NDAR,
-                    rng=numpy_rng_boltzmann,
-                ):
-                    bitflip_transformation_i = (
-                        self.attractor_model.return_bitflip_transformation(
-                            bitstring=best_bitstring_i
-                        )
-                    )
-                    t0 = time.perf_counter()
-                    hamiltonian_transformed_i = (
-                        hamiltonian_representation_here.apply_bitflip(
-                            bitflip_transformation_i
-                        )
-                    )
-                    time.perf_counter()
-
-                    #
-
-                    # raise KeyboardInterrupt
-                else:
-                    hamiltonian_transformed_i = hamiltonian_representation_here
-                    bitflip_transformation_i = tuple(
-                        [0] * hamiltonian_representation_here.number_of_qubits
-                    )
-
-                # TODO(FBM): this should not depend on "QAOAResult" object!
-                ndar_results_i = NDARIterationResult(
-                    iteration_index=self.ndar_iteration,
-                    bitflip_transform=bitflip_transformation_i,
-                    attractor_model=self.attractor_model,
-                    qaoa_result=best_qaoa_i,
-                    convergence_criterion=self.convergence_criterion,
-                )
-
-                self.log_results(ndar_result=ndar_results_i)
-
-                if add_mcndar:
-                    convergence_criterion_mcndar = ConvergenceCriterion(
-                        convergence_criterion_name=ConvergenceCriterionNames.MaxUnsuccessfulTrials,
-                        convergence_value=20,
-                    )
-
-                    mcndar_kwargs = {
-                        "number_of_samples_per_trial": 10000,
-                        "number_of_trials_max": 1000,
-                        "p_01": 1 - 3 / self.number_of_qubits,
-                        "verbosity": 0,
-                        "temperature": 1.0,
-                        "temperature_mult": 1.0,
-                        "convergence_criterion": convergence_criterion_mcndar,
-                        "show_progress_bar": False,
-                        "solver_name": "MCNDAR",
-                        "solver_seed": new_seed_i,
-                    }
-                    from quapopt.optimization.classical_solvers import (
-                        SolverNames,
-                        solve_ising_hamiltonian,
-                    )
-
-                    (best_bitstring_mcndar, best_energy_mcndar), df_trials_ = (
-                        solve_ising_hamiltonian(
-                            hamiltonian=hamiltonian_transformed_i,
-                            solver_name=SolverNames.local_search,
-                            solver_kwargs=mcndar_kwargs,
-                            repetitions=1,
-                            show_progress_bar=False,
-                        )
-                    )
-
-                    best_energy_mcndar = float(best_energy_mcndar)
-                    best_bitstring_mcndar = tuple(best_bitstring_mcndar.tolist())
-
-                    best_qaoa_mcndar = QAOAResult(
-                        energy_result=EnergyResultMain(
-                            energy_best=best_energy_mcndar,
-                            bitstring_best=best_bitstring_mcndar,
-                        ),
-                        angles=best_qaoa_i.angles,
-                        hamiltonian_representation_index=hamiltonian_representation_index_i,
-                    )
-
-                    if self._metropolis_check(
-                        energy_current=best_energy_mcndar,
-                        energy_previous=score_i,
-                        temperature=temperature_NDAR,
-                        rng=numpy_rng_boltzmann,
-                    ):
-                        bitflip_transformation_mcndar = (
-                            self.attractor_model.return_bitflip_transformation(
-                                bitstring=best_bitstring_mcndar
-                            )
-                        )
-                        t0 = time.perf_counter()
-                        hamiltonian_transformed_i = (
-                            hamiltonian_transformed_i.apply_bitflip(
-                                bitflip_transformation_mcndar
-                            )
-                        )
-                        time.perf_counter()
-                    else:
-                        bitflip_transformation_mcndar = tuple(
-                            [0] * hamiltonian_representation_here.number_of_qubits
-                        )
-
-                    ndar_results_mcndar_i = NDARIterationResult(
-                        iteration_index=self.ndar_iteration,
-                        bitflip_transform=bitflip_transformation_mcndar,
-                        attractor_model=self.attractor_model,
-                        qaoa_result=best_qaoa_mcndar,
-                        convergence_criterion=self.convergence_criterion,
-                    )
-                    self.log_results(ndar_result=ndar_results_mcndar_i)
-
-                    score_i = best_energy_mcndar
-
-                    if score_i < best_energy_current_iteration:
-                        best_energy_current_iteration = score_i
-                        best_solution_current_iteration = best_bitstring_mcndar
-
-                if hamming_distance_local_search is not None:
-                    energies_hdls_i = hamiltonian_transformed_i.evaluate_energy(
-                        bitstrings_array=bitstrings_neighbors
-                    )
-                    best_index_hdls_i = bck.argmin(energies_hdls_i)
-                    best_energy_hdls_i = float(energies_hdls_i[best_index_hdls_i])
-                    best_bitstring_hdls_i = tuple(
-                        bitstrings_neighbors[best_index_hdls_i, :].get().tolist()
-                    )
-
-                    best_qaoa_hdls_i = QAOAResult(
-                        energy_result=EnergyResultMain(
-                            energy_best=best_energy_hdls_i,
-                            bitstring_best=best_bitstring_hdls_i,
-                        ),
-                        angles=best_qaoa_i.angles,
-                        hamiltonian_representation_index=hamiltonian_representation_index_i,
-                    )
-
-                    if self._metropolis_check(
-                        energy_current=best_energy_hdls_i,
-                        energy_previous=score_i,
-                        temperature=temperature_NDAR,
-                        rng=numpy_rng_boltzmann,
-                    ):
-
-                        bitflip_transformation_hdls_i = (
-                            self.attractor_model.return_bitflip_transformation(
-                                bitstring=best_bitstring_hdls_i
-                            )
-                        )
-
-                        t0 = time.perf_counter()
-                        hamiltonian_transformed_i = (
-                            hamiltonian_transformed_i.apply_bitflip(
-                                bitflip_transformation_hdls_i
-                            )
-                        )
-                        time.perf_counter()
-                    else:
-                        bitflip_transformation_hdls_i = tuple(
-                            [0] * hamiltonian_representation_here.number_of_qubits
-                        )
-
-                    ndar_results_hdls_i = NDARIterationResult(
-                        iteration_index=self.ndar_iteration,
-                        bitflip_transform=bitflip_transformation_hdls_i,
-                        attractor_model=self.attractor_model,
-                        qaoa_result=best_qaoa_hdls_i,
-                        convergence_criterion=self.convergence_criterion,
-                    )
-
-                    self.log_results(ndar_result=ndar_results_hdls_i)
-                    score_i = best_energy_hdls_i
-
-                    if score_i < best_energy_current_iteration:
-                        best_energy_current_iteration = score_i
-                        best_solution_current_iteration = best_bitstring_hdls_i
-
-                hamiltonian_representations_to_optimize.append(
-                    hamiltonian_transformed_i
-                )
-
-                best_energy_i = float(best_energy_current_iteration)
-                best_energy_so_far = min(
-                    [float(self.best_energy_so_far), best_energy_i]
-                )
-
-                ar_best_energy_i = (highest_energy - best_energy_i) / delta
-                ar_best_energy_so_far = (highest_energy - best_energy_so_far) / delta
-
-                best_bitstring_so_far = tuple(best_solution_current_iteration)
-                # TODO(FBM): mcndar is not considered, fix this
-                applied_mask = tuple(bitflip_transformation_i)
-
-                if store_full_data_additional:
-                    assert (
-                        optimize_over_n_gauges == 1
-                    ), "Currently, we only support storing full data for one gauge."
-                    df_here = pd.DataFrame(
-                        data={
-                            #  SNV.Seed.id_long: [sampler_seed],
-                            SNV.IterationIndex.id_long: [self._ndar_iteration],
-                            # SNV.FlipProbability.id_long: [p_01],
-                            # SNV.Temperature.id_long: [temperature],
-                            SNV.ApproximationRatio.id_long: [ar_best_energy_i],
-                            SNV.ApproximationRatioBest.id_long: [ar_best_energy_so_far],
-                            SNV.Energy.id_long: [best_energy_i],
-                            SNV.EnergyBest.id_long: [best_energy_so_far],
-                            SNV.Runtime.id_long: [time.perf_counter() - t0_total],
-                            SNV.ConvergenceCriterion.id_long: [convergence_description],
-                            SNV.Bitstring.id_long: [
-                                tuple([int(x) for x in best_bitstring_so_far])
-                            ],
-                            SNV.Bitflip.id_long: [
-                                tuple([int(x) for x in applied_mask])
-                            ],
-                        }
-                    )
-                    if df_annotation_add is not None:
-                        df_here = pd.concat([df_here, df_annotation_add], axis=1)
-
-                    results_all_add.append(df_here)
-
-            self.update_best_energy_so_far(
-                candidate_energy=best_energy_current_iteration
-            )
-            self._optimization_history[self._ndar_iteration] = (
-                best_energy_current_iteration,
-                best_solution_current_iteration,
-            )
-
-            if verbosity > 0:
-                anf.cool_print("Iteration: ", self._ndar_iteration, "blue")
-                energy_str = f"{self.best_energy_so_far}"
-                if ground_state_energy is not None and highest_energy is not None:
-                    ar_best_so_far = (highest_energy - self.best_energy_so_far) / (
-                        highest_energy - ground_state_energy
-                    )
-                    energy_str += f" (AR: {np.round(ar_best_so_far, 4)})"
-
-                anf.cool_print("Best energy so far: ", energy_str, "green")
-
-            self._ndar_iteration += 1
-            if show_progress_bar_ndar:
-                pbar.update(1)
-
-            if ground_state_energy is not None:
-                if abs(ground_state_energy - self.best_energy_so_far) < 1e-6:
-                    if verbosity > 0:
-                        anf.cool_print("FOUND GROUND STATE!", "breaking", "cyan")
-                        print()
-                    break
-
-        if show_progress_bar_ndar:
-            pbar.close()
 
         if verbosity > 0:
-            anf.cool_print(
-                "Finished after ", f"{self._ndar_iteration} iterations.", "red"
-            )
-            anf.cool_print("Final best energy:", self.best_energy_so_far, "red")
-            anf.cool_print("Optimization time:", dt_optimization, "red")
+            anf.cool_print("Starting NDAR with the following samplers:", [x[3] for x in local_sampler_functions], 'blue')
 
+        t_start_ndar = time.perf_counter()
+        dt_optimization = 0.0
+        while not self.check_convergence():
+            hamiltonian_representations_to_optimize: List[ClassicalHamiltonian] = [x.copy() for x in hamiltonian_representations_to_optimize]
+
+            local_results_ndar_i = []
+            for (local_sampler, local_updater, logging_handler, local_sampler_name) in local_sampler_functions:
+                local_results_i, hamiltonian_representations_to_optimize = self._handle_single_sampler(
+                                                                                hamiltonian_representations=hamiltonian_representations_to_optimize,
+                                                                                best_result_previous=best_results_curr,
+                                                                                local_sampler_callable=local_sampler,
+                                                                                local_sampler_kwargs_updater=local_updater,
+                                                                                logging_callable=logging_handler,
+                                                                                local_sampler_name=local_sampler_name,
+                                                                                temperature_NDAR=temperature_NDAR)
+
+                best_results_i: NDARIterationResult = local_results_i[0]
+                local_results_ndar_i.append(local_results_i)
+
+
+                if best_results_i.best_energy < best_energy_curr:
+                    best_energy_curr = best_results_i.best_energy
+                    best_solution_curr = best_results_i.best_bitstring
+                    best_rep_index_curr = best_results_i.best_hamiltonian_representation_index
+                    best_results_curr = best_results_i.best_result
+
+                    #TODO(FBM): should make a heap to include multiple best results checks
+                    # best_results_curr = [x.best_result for x in local_results_i]
+
+
+                did_update_energy = self.update_best_energy_so_far(candidate_energy=best_energy_curr)
+
+                if self._pbar is not None and did_update_energy:
+                    _postfix = f"{self.best_energy_so_far:.4f}"
+                    ar = self.input_hamiltonian.calculate_approximation_ratio(energy=self.best_energy_so_far)
+                    if ar is not None:
+                        _postfix += f" (AR={ar:.5f})"
+                    _postfix += f"; it = {self.ndar_iteration}"
+                    _postfix += f"; ({local_sampler_name})"
+
+                    self._pbar.set_postfix(BestCost=_postfix)
+
+                if max_runtime is not None and time.perf_counter()-t_start_ndar > max_runtime:
+                    anf.cool_print("Breaking NDAR loop because:",  "max_runtime was reached.", 'red',)
+                    break
+
+            self._ndar_history.append(local_results_ndar_i)
+            self._optimization_history[self._ndar_iteration] = (best_energy_curr,
+                                                                best_solution_curr,
+                                                                best_rep_index_curr)
+
+            if self._pbar is not None:
+                self._pbar.update(1)
+
+            self._ndar_iteration += 1
+            #print('hejka', ground_state_energy, self.best_energy_so_far)
+
+            if ground_state_energy is not None:
+                #TODO(FBM): in the past, we'd break the optimization here, but not anymore.
+                if abs(ground_state_energy - self.best_energy_so_far) < 1e-4:
+
+                    if break_after_finding_ground_state:
+                        anf.cool_print("FOUND ~GROUND STATE!", 'Breaking!', 'cyan')
+
+                        break
+                    anf.cool_print("FOUND ~GROUND STATE!", 'cool :-)', 'cyan')
+
+                    # anf.cool_print("FOUND GROUND STATE!", 'breaking NDAR loop', 'cyan')
+                    # break
+
+            if max_runtime is not None and time.perf_counter() - t_start_ndar > max_runtime:
+                break
+
+        if self._pbar is not None:
+            self._pbar.close()
+
+        t1_total = time.perf_counter()
+
+        dt_total = t1_total - t0_total
+
+        if verbosity > 0:
+            anf.cool_print("Finished after ", f'{self._ndar_iteration} iterations.', 'blue')
+            _best_energy_str = f"{self.best_energy_so_far:.4f}"
+            ar = self.input_hamiltonian.calculate_approximation_ratio(energy=self.best_energy_so_far)
+            if ar is not None:
+                _best_energy_str += f" (AR={ar:.5f})"
+
+            anf.cool_print('Final best energy:', _best_energy_str, 'blue')
+            anf.cool_print("Total time:", dt_total, 'yellow')
+            anf.cool_print("Out of which calls to local sampler:", dt_optimization, 'yellow')
         optimization_history = self._optimization_history
 
         optimization_history_values = list(optimization_history.values())
-        optimization_history_values_sorted = sorted(
-            optimization_history_values, key=lambda x: x[0]
-        )
+        optimization_history_values_sorted = sorted(optimization_history_values, key=lambda x: x[0])
         best_res = optimization_history_values_sorted[0]
 
-        if store_full_data_additional:
-            df_res = pd.concat(results_all_add, axis=0)
-            return best_res, df_res
-        else:
-            return best_res, self._optimization_history
-
-    def run_NDAR(self, *args, **kwargs):
-        raise NotImplementedError("This method must be implemented in a subclass.")
-
-    # def _log_results(self,
-    #                  ndar_result: NDARIterationResult):
-
-    def log_results(
-        self,
-        ndar_result: NDARIterationResult,
-    ):
-
-        raise NotImplementedError("This method must be implemented in a subclass.")
-        # if self._logging_level not in [None, LoggingLevel.NONE]:
+        return best_res, self._ndar_history
 
     def clean_optimization_history(self):
         self._optimization_history = {}
         self._best_energy_so_far = np.inf
-        zero_tuple = tuple([0] * self._number_of_qubits)
-        self._transformations_history = {
-            0: (ham, zero_tuple) for ham in self._input_hamiltonians
-        }
+        self._ndar_history = []
         self._ndar_iteration = 0
+        self._pbar = None
 
-    def _print_energy_progress_nicely(
-        self,
-        current_energy: float,
-        best_energy_so_far: float,
-        verbosity: int,
-        step_information: Optional[str] = None,
-    ):
-        if verbosity <= 0:
-            return
 
-        highest_energy = self._input_hamiltonians[0].highest_energy
-        lowest_energy = self._input_hamiltonians[0].lowest_energy
+    def history_to_dataframe(self):
 
-        if step_information is None:
-            step_information = ""
+        all_results = []
+        #Iterate over NDAR iterations
+        for ndar_iteration_index in range(len(self._ndar_history)):
+            results_here_iter = self._ndar_history[ndar_iteration_index]
+            #Iterate over local samplers
+            for results_here_iter in results_here_iter:
+                best_energy = np.inf
+                best_df = None
 
-        print_ar = False
-        if highest_energy is not None and lowest_energy is not None:
-            delta = highest_energy - lowest_energy
-            ar_current = (highest_energy - current_energy) / delta
-            ar_previous = (highest_energy - best_energy_so_far) / delta
-            print_ar = True
+                #Iterate over best results within the solver
+                for res_here_iter in results_here_iter:
+                    res_here_iter: NDARIterationResult
 
-        if current_energy < best_energy_so_far:
-            main_text = f"Found new minimum!"
-            if step_information is not None:
-                main_text += f"({step_information})"
+                    if res_here_iter.best_energy < best_energy:
+                        best_energy = res_here_iter.best_energy
+                        best_df = res_here_iter.to_dataframe_main()
 
-            if print_ar:
-                sub_text = (
-                    f"AR: {np.round(ar_previous, 4)} --> {np.round(ar_current, 4)}"
-                )
-            else:
-                sub_text = f"Energy: {np.round(best_energy_so_far, 4)} --> {np.round(current_energy, 4)}"
+                all_results.append(best_df)
 
-            anf.cool_print(main_text, sub_text, color_name="yellow")
-        elif verbosity >= 2:
-            main_text = f"Current value ({step_information}):"
+        return pd.concat(all_results, ignore_index=True,axis=0)
 
-            if print_ar:
-                sub_text = f"AR: {np.round(ar_current, 4)}"
-            else:
-                sub_text = f"Energy: {np.round(current_energy, 4)}"
+            #     result_here_iter.ndar_iteration = ndar_iteration_index
 
-            anf.cool_print(main_text, sub_text, color_name="blue")
+
+        # return pd.DataFrame(self._optimization_history)

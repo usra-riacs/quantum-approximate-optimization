@@ -7,10 +7,6 @@ Set of tools to implement quantum optimization for classical problems (diagonal 
 ### Operating system
 This project has been tested mainly on Ubuntu, with limited tests on Windows and MacOS.
 
-Note: on MacOS, you might need to comment out all pixi's "features" that have "gpu" in the name. 
-To do so, simply go to pixi.toml file and comment out all lines that contain "gpu".
-This is because pixi attempts to solve the environments for all systems at the same time, and MacOS does not support CUDA.
-
 
 ### Clone repository
 
@@ -18,6 +14,15 @@ Run the following command wherever you want the repository to be stored
 
 ```
 git clone https://github.com/usra-riacs/quantum-approximate-optimization
+```
+
+
+
+### Pre-install steps
+#### [MAC] Install XCode
+The Cython extensions require a C++ compiler. On macOS, this comes from Xcode Command Line Tools:
+```bash
+xcode-select --install
 ```
 
 
@@ -29,7 +34,7 @@ If you don't have it, please install pixi using the following command **on Linux
 curl -fsSL https://pixi.sh/install.sh | sh 
 ```
 
-(see https://pixi.sh/v0.54.2/installation/ for details and other installation options)
+(see https://pixi.sh/v0.49.0/installation/ for details and other installation options)
 
 
 
@@ -83,6 +88,18 @@ NOTE: currently, as far as I know, qiskit-aer-gpu does not properly install with
 To use it, a brave user is advised to build the repository locally and add separate environment and feature in pixi.toml file.
 
 
+
+
+#### Make the repository importable
+After setting up the environment, run the following command in the root of the repository, once for each
+environment you installed (for example `quapopt-full`)
+
+```
+pixi run --environment <name> add_repo_to_python_path
+```
+
+to put the repository on the Python path of that environment, so that notebooks and scripts can import `quapopt`.
+The path is stored as an absolute path: run it again after you reinstall the environment or move the repository.
 
 
 #### Build cpp parts of the project
@@ -160,6 +177,7 @@ The basics are showcased in the [quick start](notebooks/tutorials/00_quick_start
 We plan to add more tutorials in the future.
 
 
+
 ## Citing this repo
 The following bibtex entry can be used to cite this repository:
 
@@ -171,6 +189,7 @@ howpublished={\url{https://github.com/usra-riacs/quantum-approximate-optimizatio
   year = {2025}
 }
 
+
 ## Funding 
 Development of significant parts of the repository was supported under the NSF awards #2329097 and #1918549.
 
@@ -181,7 +200,6 @@ We use some (refactored) code from the following repositories:
 * https://github.com/aboev/pymqlib (various classical solvers, including Burer-Monteiro algorithm) under The MIT License (MIT)
 
 The relevant licenses for those repos can also be found in both subfolders with forked repos (whenever relevant), and the above links.
-
 
 
 ## References

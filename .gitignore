@@ -177,7 +177,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-./output/
+output/
 
 
 #AGENTS

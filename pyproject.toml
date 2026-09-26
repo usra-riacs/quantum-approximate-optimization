@@ -1,5 +1,6 @@
 [build-system]
 requires = [
+"wheel",
 "setuptools>=80.9.0,<81",
 "cython>=3.1.2,<4",
 "numpy>=2.2.6,<3"]
@@ -11,8 +12,8 @@ name = "quapopt"
 authors = [{ name = "Filip B. Maciejewski", email = "fmaciejewski@usra.edu" }]
 description = "Various tools for running quantum approximate optimization experiments and simulations."
 readme = "README.md"
-version = "0.2.1"
-requires-python = "==3.12"
+version = "0.5.0"
+requires-python = ">=3.12"
 
 
 dependencies = [
@@ -33,7 +34,9 @@ dependencies = [
     "optuna>=3.6.1,<4",
     "python-dotenv>=1.1.1,<2",
     "qiskit>=2.1.0,<3",
-    "qiskit-ibm-runtime>=0.40.1,<0.41",
+    "qiskit-ibm-runtime>=0.40.1",
+    "qiskit-aer>=0.17.1,<0.18",
+    "numba>=0.61.2,<0.62",
     "kaleido>=1.0.0,<2",
     "pytest>=8.4.1,<9",
     "nbstripout>=0.8.1,<0.9",
@@ -44,7 +47,7 @@ dependencies = [
     "networkx>=3.4.2,<4",
 
     #Custom version of mqlib
-    "mqlib @ git+https://github.com/fbm2718-usra/pymqlib-quapopt.git"
+    "mqlib @ git+https://github.com/fbm2718-usra/pymqlib-quapopt.git@main"
     #"mqlib@file:./quapopt/additional_packages/pymqlib"
 ]
 
@@ -58,6 +61,7 @@ mlvl = [
 
 
 gpu = [
+# "cupy>=13.4.1,<14",
     "cupy-cuda12x",
     "numba-cuda>=0.16.0,<0.17",
 ]
@@ -72,7 +76,10 @@ visualization = ['cmocean']
 
 qiskit_qopt = [
     "python-sat>=1.8.dev17,<2",
-    "qopt-best-practices @ git+https://github.com/qiskit-community/qopt-best-practices.git"]
+    "qopt-best-practices @ git+https://github.com/qiskit-community/qopt-best-practices.git",
+    "qaoa-training-pipeline @ git+https://github.com/qiskit-community/qaoa_training_pipeline.git"
+
+]
 
 qiskit_aer = ["qiskit-aer>=0.17.1,<0.18"]
 
@@ -96,6 +103,5 @@ full_gpu = [
         "quapopt[visualization]"
 
 ]
-
 
 

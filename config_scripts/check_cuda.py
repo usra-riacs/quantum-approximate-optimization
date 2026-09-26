@@ -1,33 +1,39 @@
 # Copyright 2025 USRA
 # Authors: Filip B. Maciejewski (fmaciejewski@usra.edu; filip.b.maciejewski@gmail.com)
 
-
 AVAILABLE_SIMULATORS = []
 
 try:
     import cupy
+    try:
+        if cupy.cuda.is_available():
+            AVAILABLE_SIMULATORS += ['cupy']
+    except(Exception) as e:
+        pass
 
-    if cupy.cuda.is_available():
-        AVAILABLE_SIMULATORS += ['cupy']
 except (ImportError, ModuleNotFoundError):
     pass
 
 try:
     import numba.cuda
-
-    if numba.cuda.is_available():
-        AVAILABLE_SIMULATORS += ['cuda']
+    try:
+        if numba.cuda.is_available():
+            AVAILABLE_SIMULATORS += ['cuda']
+    except(Exception) as e:
+        pass
 except (ImportError, ModuleNotFoundError):
     pass
 
 try:
     import torch
+    try:
+        if torch.cuda.is_available():
+            AVAILABLE_SIMULATORS += ['torch']
+    except(Exception) as e:
+        pass
 
-    if torch.cuda.is_available():
-        AVAILABLE_SIMULATORS += ['torch']
 except(ImportError, ModuleNotFoundError):
     pass
-
 try:
     import numba, cupy, torch
 
