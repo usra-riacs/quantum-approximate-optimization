@@ -173,8 +173,15 @@ The basics are showcased in the [quick start](notebooks/tutorials/00_quick_start
 1. [Hamiltonian generation](notebooks/tutorials/00_quick_start/A_generating_hamiltonians) How to generate and save Hamiltonian instances for further use.
 2. [Running basic QAOA](notebooks/tutorials/00_quick_start/B_running_qaoa_circuits) How to run basic QAOA optimization using different backends.
 3. [Running QAOA with gauge transformations](notebooks/tutorials/00_quick_start/C_gauge_symmetries_and_NDAR/) How to run QAOA with gauge transformations and Noise-Directed Adaptive Remapping (NDAR).
+4. [ND-AWS as an NDAR solver](notebooks/tutorials/00_quick_start/D_NDAWS_as_NDAR_solver/) How to run Noise-Directed Adaptive Warm-Starting (ND-AWS): the NDAR loop with a warm-started QAOA circuit as its sampler.
+
+The [tutorials README](notebooks/tutorials/README.md) describes each notebook.
 
 We plan to add more tutorials in the future.
+
+### Paper notebooks
+
+The [ND-AWS paper notebooks](notebooks/papers/ndaws) run the experiments of the Noise-Directed Adaptive Warm-Starting (ND-AWS) paper and redraw its figures and table. See the README in that folder.
 
 
 
@@ -194,12 +201,10 @@ howpublished={\url{https://github.com/usra-riacs/quantum-approximate-optimizatio
 Development of significant parts of the repository was supported under the NSF awards #2329097 and #1918549.
 
 ## Used repositories 
-We use some (refactored) code from the following repositories:
-* https://github.com/jpmorganchase/QOKit (fast simulation of low-scale QAOA) under Apache License Version 2.0
-* https://github.com/nasa/pysa/ (simulated annealing solver) under Apache License Version 2.0
+We use some (refactored) code from the following repository:
 * https://github.com/aboev/pymqlib (various classical solvers, including Burer-Monteiro algorithm) under The MIT License (MIT)
 
-The relevant licenses for those repos can also be found in both subfolders with forked repos (whenever relevant), and the above links.
+Its license can be found at the above link.
 
 
 ## References
