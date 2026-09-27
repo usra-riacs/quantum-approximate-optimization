@@ -1,8 +1,7 @@
 [workspace]
 name = "quapopt"
 channels = ["conda-forge", "nvidia"]
-#platforms = ["linux-64", "osx-arm64", "win-64"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
 
 authors = ["Filip B. Maciejewski <fmaciejewski@usra.edu>"]
 description = "Various tools for running quantum approximate optimization experiments and simulations."
@@ -102,8 +101,7 @@ sortedcontainers = ">=2.4.0,<3"
 
 
 [feature.gpu_support]
-#platforms = ["linux-64", "win-64"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "win-64"]
 
 
 
@@ -116,12 +114,14 @@ cuda = ">=12.9.1,<13"
 cuda-toolkit = ">=12.9.1,<13"
 cupy = ">=13.4.1,<14"
 numba-cuda = ">=0.16.0,<0.17"
+
+#cuquantum-python >=25.11 has no win-64 package; quapopt uses it only when it is installed
+[feature.gpu_support.target.linux-64.dependencies]
 cuquantum-python = ">=25.11.1,<26"
 
 
 [feature.machine_learning]
-#platforms = ["linux-64", "win-64"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "win-64"]
 
 
 [feature.machine_learning.dependencies]
@@ -163,12 +163,6 @@ qiskit-aer = ">=0.17.1,<0.18"
 
 
 
-[feature.addons_linux]
-platforms = ["linux-64"]
-
-#[feature.addons_linux.pypi-dependencies]
-#jupyter_server_mathjax = "*"
-
 [feature.pauli_backprop.pypi-dependencies]
 qiskit-addon-obp = "*"
 qiskit-addon-utils = ">=0.1.1, <0.2"
@@ -185,8 +179,8 @@ quapopt = {features = ['quapopt','mqlib', 'qiskit_aer'], solve-group="quapopt", 
 quapopt-gpu = {features = ['quapopt','mqlib',  'gpu_support', 'qiskit_aer_gpu'], solve-group="quapopt-gpu", no-default-feature = true}
 
 #full versions that include some additional packages useful for working with advanced quantum optimization
-quapopt-full = {features = ['quapopt','mqlib',  "machine_learning_cpu", 'qiskit_aer', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization', 'addons_linux', 'tensor_networks', 'misc'], solve-group="quapopt",no-default-feature = true}
-quapopt-gpu-full = {features = ['quapopt','mqlib',  'gpu_support', 'machine_learning', 'qiskit_aer_gpu', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization', 'addons_linux', 'tensor_networks', 'misc'], solve-group="quapopt-gpu",no-default-feature = true}
+quapopt-full = {features = ['quapopt','mqlib',  "machine_learning_cpu", 'qiskit_aer', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization', 'tensor_networks', 'misc'], solve-group="quapopt",no-default-feature = true}
+quapopt-gpu-full = {features = ['quapopt','mqlib',  'gpu_support', 'machine_learning', 'qiskit_aer_gpu', 'mlvl', 'qiskit_qopt', 'pauli_backprop', 'visualization', 'tensor_networks', 'misc'], solve-group="quapopt-gpu",no-default-feature = true}
 
 #Environments for debugging
 debug = {features=['debug'], solve-group="debug",no-default-feature = true}

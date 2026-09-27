@@ -63,7 +63,7 @@ pixi install --environment quapopt-full
 Without the above, some functionalities might not be available.
 
 
-#### [Optional] Additional packages for GPU support
+#### [Optional] Additional packages for GPU support (Linux and Windows)
 If you have Nvidia GPU, we highly recommend working with repository's version that supports GPU computation.
 To do so, run
 
