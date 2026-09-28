@@ -12,7 +12,7 @@ name = "quapopt"
 authors = [{ name = "Filip B. Maciejewski", email = "fmaciejewski@usra.edu" }]
 description = "Various tools for running quantum approximate optimization experiments and simulations."
 readme = "README.md"
-version = "0.5.0"
+version = "0.6.0"
 requires-python = ">=3.12"
 
 
