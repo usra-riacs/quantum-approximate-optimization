@@ -183,7 +183,7 @@ We plan to add more tutorials in the future.
 
 Since our repository is evolving, it's possible that in the future, the main branch of the repo will become incompatible with the code used in a particular paper. To get the compatible historical version, please use the relevant branch stated below.
 
-1. (2026-09) Noise-Directed Adaptive Warm-Starting [[7]](https://arxiv.org/abs/2607.09368). The [ND-AWS paper notebooks](notebooks/papers/ndaws) run the experiments of the Noise-Directed Adaptive Warm-Starting (ND-AWS) paper and redraw its figures and table. See the README in that folder. Compatible-branch: *2026-09-ndaws*.
+1. (2026-09) Noise-Directed Adaptive Warm-Starting [[7]](https://arxiv.org/abs/2607.09368). The [ND-AWS paper notebooks](notebooks/papers/ndaws) run the experiments of the Noise-Directed Adaptive Warm-Starting (ND-AWS) paper and redraw its figures and table. See the README in that folder. Compatible-branch: *2026-09-paper-ndaws*.
 
 
 
