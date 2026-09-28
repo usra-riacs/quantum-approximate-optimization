@@ -120,6 +120,9 @@ pixi run set_results_directory
 ```
 and enter the relevant directory.
 
+If you skip this, the data is written to an `output` directory at the repository root, no
+matter which folder you run from.
+
 #### [Optional] Support for IDEs
 If you use IDE like PyCharm or Microsoft Visual Studio, please refer to https://pixi.sh/dev/integration/editor/jetbrains for instructions on how to integrate pixi with your IDE (the link leads to PyCharm instructions, but others are also supported).
 
@@ -226,6 +229,10 @@ This repository is based, among others, on the following papers, which describe 
 
 [7] Filip B. Maciejewski, Stuart Hadfield, Oscar Wallis, George Pennington, Sebastian Brandhofer, Stefan Woerner, Daniel J. Egger, and Davide Venturelli.
  "[Quantum Approximate Optimization via Noise-Directed Adaptive Warm-Starting](https://arxiv.org/abs/2607.09368)" arXiv preprint arXiv:2607.09368 (2026).
+
+[8] V Vijendran, Dax Enshan Koh, Eunok Bae, Hyukjoon Kwon, Ping Koy Lam, Syed M Assad. "[Near-Optimal Parameter Tuning of Level-1 QAOA for Ising Models](https://arxiv.org/abs/2501.16419)" Quantum 10, 2158 (2026).
+
+[9] Daniel J. Egger, Jakub Marecek, Stefan Woerner. "[Warm-starting quantum optimization](https://arxiv.org/abs/2009.10095)" Quantum 5, 479 (2021).
 
 
 
