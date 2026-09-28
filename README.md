@@ -34,7 +34,7 @@ If you don't have it, please install pixi using the following command **on Linux
 curl -fsSL https://pixi.sh/install.sh | sh 
 ```
 
-(see https://pixi.sh/v0.49.0/installation/ for details and other installation options)
+(see https://pixi.prefix.dev/latest/ for details and other installation options)
 
 
 
@@ -92,10 +92,10 @@ To use it, a brave user is advised to build the repository locally and add separ
 
 #### Make the repository importable
 After setting up the environment, run the following command in the root of the repository, once for each
-environment you installed (for example `quapopt-full`)
+environment you want to use (for example `quapopt-full`)
 
 ```
-pixi run --environment <name> add_repo_to_python_path
+pixi run add_repo_to_python_path
 ```
 
 to put the repository on the Python path of that environment, so that notebooks and scripts can import `quapopt`.
@@ -181,7 +181,9 @@ We plan to add more tutorials in the future.
 
 ### Paper notebooks
 
-The [ND-AWS paper notebooks](notebooks/papers/ndaws) run the experiments of the Noise-Directed Adaptive Warm-Starting (ND-AWS) paper and redraw its figures and table. See the README in that folder.
+Since our repository is evolving, it's possible that in the future, the main branch of the repo will become incompatible with the code used in a particular paper. To get the compatible historical version, please use the relevant branch stated below.
+
+1. (2026-09) Noise-Directed Adaptive Warm-Starting [[7]](https://arxiv.org/abs/2607.09368). The [ND-AWS paper notebooks](notebooks/papers/ndaws) run the experiments of the Noise-Directed Adaptive Warm-Starting (ND-AWS) paper and redraw its figures and table. See the README in that folder. Compatible-branch: *2026-09-ndaws*.
 
 
 
@@ -193,7 +195,7 @@ The following bibtex entry can be used to cite this repository:
   title = {quapopt -- open source {G}it{H}ub repository for quantum approximate optimization},
  doi={https://github.com/usra-riacs/quantum-approximate-optimization},
 howpublished={\url{https://github.com/usra-riacs/quantum-approximate-optimization}},
-  year = {2025}
+  year = {2026}
 }
 
 
@@ -216,14 +218,14 @@ This repository is based, among others, on the following papers, which describe 
 
 [3] Maciejewski, Filip B., Stuart Hadfield, Benjamin Hall, Mark Hodson, Maxime Dupont, Bram Evert, James Sud et al. "[Design and execution of quantum circuits using tens of superconducting qubits and thousands of gates for dense Ising optimization problems.](https://arxiv.org/abs/2308.12423)" Physical Review Applied 22, no. 4 (2024): 044074.
 
-[4] Bach, Bao G., Filip B. Maciejewski, and Ilya Safro. "[Solving Large-Scale QUBO with Transferred Parameters from Multilevel QAOA of low depth.](https://arxiv.org/abs/2505.11464)" arXiv preprint arXiv:2505.11464 (2025).
+[4] Bach, Bao G., Filip B. Maciejewski, and Ilya Safro. "[Solving Large-Scale QUBO with Transferred Parameters from Multilevel QAOA of low depth.](https://arxiv.org/abs/2505.11464)"  in 2025 IEEE International Conference on Quantum Computing and Engineering (QCE) (Vol. 1, pp. 2120-2126). IEEE.
 
-[5] Tam, Wai-Hong, Hiromichi Matsuyama, Ryo Sakai, and Yu Yamashiro. "[Enhancing NDAR with Delay-Gate-Induced Amplitude Damping.]"(https://arxiv.org/abs/2504.12628) arXiv preprint arXiv:2504.12628 (2025).
+[5] Tam, Wai-Hong, Hiromichi Matsuyama, Ryo Sakai, and Yu Yamashiro. "[Enhancing NDAR with Delay-Gate-Induced Amplitude Damping.](https://arxiv.org/abs/2504.12628)" arXiv preprint arXiv:2504.12628 (2025).
 
-[6] Lykov, Danylo, Ruslan Shaydulin, Yue Sun, Yuri Alexeev, and Marco Pistoia. "[Fast simulation of high-depth qaoa circuits.](https://arxiv.org/abs/2309.04841)" In Proceedings of the SC'23 Workshops of The International Conference on High Performance Computing, Network, Storage, and Analysis, pp. 1443-1451. 2023.
+[6] Dupont, Maxime, and Bhuvanesh Sundar. "[Extending relax-and-round combinatorial optimization solvers with quantum correlations.](https://arxiv.org/abs/2307.05821)" Physical Review A 109, no. 1 (2024): 012429.
 
-[7] Dupont, Maxime, and Bhuvanesh Sundar. "[Extending relax-and-round combinatorial optimization solvers with quantum correlations.](https://arxiv.org/abs/2307.05821)" Physical Review A 109, no. 1 (2024): 012429.
-
+[7] Filip B. Maciejewski, Stuart Hadfield, Oscar Wallis, George Pennington, Sebastian Brandhofer, Stefan Woerner, Daniel J. Egger, and Davide Venturelli.
+ "[Quantum Approximate Optimization via Noise-Directed Adaptive Warm-Starting](https://arxiv.org/abs/2607.09368)" arXiv preprint arXiv:2607.09368 (2026).
 
 
 
